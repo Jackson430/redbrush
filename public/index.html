@@ -1,0 +1,2359 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RedBrush 朱笔 · The AI red pen for Mother Tongue teachers</title>
+<script>
+/* ============================================================
+   ★★★ 部署前只需要改这里 / CONFIG — EDIT BEFORE DEPLOYING ★★★
+   ============================================================ */
+window.APP_CONFIG = {
+  // Gemini API Key（https://aistudio.google.com → Get API key）
+  GEMINI_API_KEY: 'x',
+  // 优先使用的模型；如果不可用会自动尝试后面的备选模型
+  GEMINI_MODEL: 'gemini-3.6-flash',
+  // Firebase 控制台 → 项目设置 → 你的应用 → firebaseConfig（整段贴进来）
+  // 留空(null)则使用浏览器内存模式（数据不会保存）
+  firebaseConfig: {
+    apiKey: "AIzaSyAoZxSu9Pe7Bk-i86hiF3o0JLR6GUcskXs",
+    authDomain: "redbrush-6ada7.firebaseapp.com",
+    projectId: "redbrush-6ada7",
+    storageBucket: "redbrush-6ada7.firebasestorage.app",
+    messagingSenderId: "1095293098992",
+    appId: "1:1095293098992:web:f4d3994db9c39be3609b35",
+    measurementId: "G-55NZQWMJVH"
+  },
+  // 教师密码（评审试用用）
+  TEACHER_PASSWORD: 'huacheng2026'
+};
+</script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;700;900&family=Noto+Sans+SC:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap');
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: 'Noto Sans SC', sans-serif;
+  color: #1B2A4A;
+  background: #FAFAF8;
+}
+
+.ep-serif { font-family: 'Noto Serif SC', serif; }
+.ep-mono { font-family: 'IBM Plex Mono', monospace; }
+
+.ep-app {
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 24px 16px 64px;
+}
+
+.ep-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 32px;
+}
+.ep-brand { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 18px; }
+.ep-link-btn {
+  background: none; border: none; cursor: pointer;
+  font-size: 12px; opacity: .6; display: flex; align-items: center; gap: 4px;
+  font-family: 'Noto Sans SC', sans-serif; color: #1B2A4A;
+}
+.ep-link-btn:hover { opacity: 1; }
+
+.ep-card {
+  background: #fff; border: 1px solid #D8DCCB; border-radius: 4px;
+}
+.ep-ruled { background-image: repeating-linear-gradient(#FAFAF8 0 27px, #E4E8D8 27px 28px); }
+
+.ep-tag { background: #F4DAD6; color: #B23A2E; font-family: 'IBM Plex Mono', monospace; }
+.ep-tag-green { background: #DCEBE1; color: #2F6F4E; font-family: 'IBM Plex Mono', monospace; }
+.ep-tag-blue { background: #DCE6EC; color: #2C5F7C; font-family: 'IBM Plex Mono', monospace; }
+
+.ep-btn {
+  font-family: 'Noto Sans SC', sans-serif; border: 1px solid #D8DCCB; background: #fff;
+  border-radius: 4px; padding: 8px 14px; cursor: pointer; font-size: 14px;
+  display: inline-flex; align-items: center; gap: 6px; color: #1B2A4A;
+}
+.ep-btn:hover { background: #f7f7f4; }
+.ep-btn:disabled { opacity: .4; cursor: not-allowed; }
+.ep-btn-primary { background: #1B2A4A; color: #FAFAF8; border-color: #1B2A4A; }
+.ep-btn-primary:hover { background: #24365f; }
+.ep-btn-seal { background: #B23A2E; color: #fff; border-color: #B23A2E; }
+.ep-btn-seal:hover { background: #9c3126; }
+
+input:not([type="radio"]):not([type="checkbox"]), textarea, select {
+  font-family: 'Noto Sans SC', sans-serif; background: #FAFAF8; border: 1px solid #D8DCCB;
+  border-radius: 4px; padding: 10px 12px; font-size: 14px; color: #1B2A4A; width: 100%;
+}
+input:focus, textarea:focus, select:focus { outline: 2px solid #1B2A4A; outline-offset: 1px; }
+
+input[type="radio"], input[type="checkbox"] {
+  width: 16px; height: 16px; flex-shrink: 0; accent-color: #1B2A4A; cursor: pointer;
+}
+
+.ep-divider { border-top: 1px dashed #C9CFC0; }
+
+.ep-seal {
+  border: 3px solid #B23A2E; color: #B23A2E; border-radius: 9999px;
+  transform: rotate(-8deg); display: flex; flex-direction: column; align-items: center;
+  justify-content: center; flex-shrink: 0;
+}
+
+.ep-modal-overlay {
+  position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+  z-index: 50;
+}
+
+.ep-section-heading {
+  font-family: 'Noto Serif SC', serif; font-size: 18px; font-weight: 700;
+  margin: 0 0 12px; padding-bottom: 8px; border-bottom: 2px solid #1B2A4A;
+}
+
+.ep-score-badge {
+  border-radius: 4px; font-family: 'IBM Plex Mono', monospace; font-weight: 600;
+  padding: 4px 12px; font-size: 14px; display: inline-block;
+}
+.ep-score-badge .full { opacity: .6; }
+
+label.ep-radio, label.ep-check {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 8px; cursor: pointer;
+}
+
+a { color: inherit; }
+.preview-banner {
+  background: #FDF2D0; border: 1px solid #E0C468; color: #6B5314;
+  font-size: 12px; padding: 8px 14px; border-radius: 4px; margin-bottom: 16px;
+  max-width: 780px; margin-left: auto; margin-right: auto;
+}
+</style>
+</head>
+<body>
+<div class="preview-banner" id="demoBanner">
+  🎓 <b>Judges / 评审试用：</b> Teacher password 教师密码 <b class="ep-mono">huacheng2026</b> ·
+  AI generation &amp; grading powered by <b>Google Gemini</b> ·
+  Data stored in <b id="storageLabel">Cloud Firestore</b> · Hosted on <b>Firebase</b>
+</div>
+<div id="root" class="ep-app">加载中…</div>
+<script>
+/* ============================================================
+   测评平台 - 纯JS前端（无构建工具，直接放到静态主机上即可用）
+   通过 fetch 调用同目录下 /api/*.php 完成所有数据读写和AI评分
+   ============================================================ */
+
+const App = {};
+
+/* ------------------------------- 工具函数 ------------------------------- */
+
+App.esc = function (str) {
+  const div = document.createElement('div');
+  div.textContent = str === undefined || str === null ? '' : String(str);
+  return div.innerHTML;
+};
+
+// 转义文本的同时，把目标词汇（第一次出现的位置）包上<u>标签，用于"词义选择题"在句中标出目标词
+App.escWithUnderline = function (str, word) {
+  const escaped = App.esc(str);
+  if (!word) return escaped;
+  const escWord = App.esc(word);
+  const idx = escaped.indexOf(escWord);
+  if (idx === -1) return escaped;
+  return escaped.slice(0, idx) + '<u>' + escWord + '</u>' + escaped.slice(idx + escWord.length);
+};
+
+App.randId = function () {
+  return Math.random().toString(36).slice(2, 10);
+};
+
+App.fmtDate = function (ms) {
+  return new Date(ms).toLocaleString();
+};
+
+/* ------------------------------- API 封装 ------------------------------- */
+
+App.api = async function (path, { method = 'GET', params = null, body = null } = {}) {
+  let url = 'api/' + path;
+  if (params) {
+    const qs = new URLSearchParams(params).toString();
+    url += (url.includes('?') ? '&' : '?') + qs;
+  }
+  const opts = { method, credentials: 'same-origin' };
+  if (body) {
+    opts.headers = { 'Content-Type': 'application/json' };
+    opts.body = JSON.stringify(body);
+  }
+  const res = await fetch(url, opts);
+  let data = null;
+  try { data = await res.json(); } catch { data = null; }
+  if (!res.ok) {
+    const err = new Error((data && data.error) || ('HTTP ' + res.status));
+    err.data = data;
+    throw err;
+  }
+  return data;
+};
+
+/* --------------------------------- 状态 ---------------------------------- */
+
+App.state = {
+  role: null,
+  teacherUnlocked: false,
+  teacherLoginError: '',
+  teacherLoggingIn: false,
+
+  teacher: {
+    view: 'list',
+    exams: [],
+    loadingExams: true,
+    builder: null,
+    grades: {
+      examId: null, exam: null, list: [], query: '', rowState: {}
+    },
+    confirmDeleteExamId: null,
+    deletingExam: false
+  },
+
+  student: {
+    step: 'name',
+    name: '',
+    exams: [],
+    exam: null,
+    answers: {},
+    grading: false,
+    progressText: '',
+    showBackConfirm: false,
+    result: null,
+    lookupId: '',
+    lookupError: '',
+    lookupLoading: false
+  }
+};
+
+App.render = function () {
+  const root = document.getElementById('root');
+  root.innerHTML = App.renderApp();
+};
+
+/* ============================== 根视图 ============================== */
+
+App.renderApp = function () {
+  const s = App.state;
+  let body = '';
+  if (!s.role) {
+    body = App.renderRoleSelect();
+  } else if (s.role === 'teacher' && !s.teacherUnlocked) {
+    body = App.renderTeacherGate();
+  } else if (s.role === 'teacher') {
+    body = App.renderTeacherHome();
+  } else if (s.role === 'student') {
+    body = App.renderStudentHome();
+  }
+
+  return `
+    <div class="ep-header">
+      <div class="ep-brand"><span style="color:#B23A2E;">🖌️ RedBrush</span><span class="ep-serif" style="color:#B23A2E;">朱笔</span><span style="font-size:12px;font-weight:400;opacity:.6;margin-left:4px;">The AI red pen for Mother Tongue teachers</span></div>
+      ${s.role ? `<button class="ep-link-btn" onclick="App.switchIdentity()">👥 切换身份</button>` : ''}
+    </div>
+    ${body}
+  `;
+};
+
+App.switchIdentity = async function () {
+  if (App.state.role === 'teacher') {
+    try { await App.api('auth.php', { method: 'POST', params: { action: 'logout' } }); } catch {}
+  }
+  App.state.role = null;
+  App.state.teacherUnlocked = false;
+  App.render();
+};
+
+App.renderRoleSelect = function () {
+  return `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+      <button class="ep-card" style="padding:32px;text-align:left;cursor:pointer;border:1px solid #D8DCCB;" onclick="App.chooseRole('teacher')">
+        <div style="font-size:24px;margin-bottom:12px;">✎</div>
+        <p class="ep-serif" style="font-weight:700;font-size:18px;margin:0 0 4px;">我是教师</p>
+        <p style="font-size:14px;opacity:.6;margin:0;">创建试卷、查看与调整AI阅卷结果</p>
+      </button>
+      <button class="ep-card" style="padding:32px;text-align:left;cursor:pointer;border:1px solid #D8DCCB;" onclick="App.chooseRole('student')">
+        <div style="font-size:24px;margin-bottom:12px;">👤</div>
+        <p class="ep-serif" style="font-weight:700;font-size:18px;margin:0 0 4px;">我是学生</p>
+        <p style="font-size:14px;opacity:.6;margin:0;">选择试卷并作答，提交后立即获得AI评分</p>
+      </button>
+    </div>
+  `;
+};
+
+App.chooseRole = function (role) {
+  App.state.role = role;
+  if (role === 'teacher') {
+    App.checkTeacherSession();
+  } else {
+    App.loadStudentExams();
+  }
+  App.render();
+};
+
+/* ============================== 教师：登录 ============================== */
+
+App.checkTeacherSession = async function () {
+  try {
+    const r = await App.api('auth.php', { params: { action: 'check' } });
+    App.state.teacherUnlocked = !!r.loggedIn;
+    if (App.state.teacherUnlocked) App.loadExams();
+    App.render();
+  } catch {}
+};
+
+App.renderTeacherGate = function () {
+  const err = App.state.teacherLoginError;
+  return `
+    <div class="ep-card" style="padding:32px;max-width:420px;">
+      <button class="ep-link-btn" style="margin-bottom:16px;" onclick="App.state.role=null;App.render();">← 返回</button>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <span>🔒</span>
+        <h2 class="ep-serif" style="font-size:22px;font-weight:700;margin:0;">教师登录</h2>
+      </div>
+      <p style="font-size:14px;opacity:.6;margin:0 0 16px;">请输入教师密码以进入试卷管理页面。</p>
+      <input type="password" id="teacherPwd" placeholder="密码" style="margin-bottom:8px;"
+        onkeydown="if(event.key==='Enter')App.teacherLogin()">
+      ${err ? `<p style="font-size:13px;color:#B23A2E;margin:0 0 12px;">${App.esc(err)}</p>` : ''}
+      <button class="ep-btn ep-btn-primary" style="margin-top:8px;" ${App.state.teacherLoggingIn ? 'disabled' : ''} onclick="App.teacherLogin()">
+        🔒 登录
+      </button>
+    </div>
+  `;
+};
+
+App.teacherLogin = async function () {
+  const pwd = document.getElementById('teacherPwd').value;
+  if (!pwd) return;
+  App.state.teacherLoggingIn = true;
+  App.render();
+  try {
+    await App.api('auth.php', { method: 'POST', params: { action: 'login' }, body: { password: pwd } });
+    App.state.teacherUnlocked = true;
+    App.state.teacherLoginError = '';
+    App.loadExams();
+  } catch (e) {
+    App.state.teacherLoginError = '密码不对，请再试一次。';
+  }
+  App.state.teacherLoggingIn = false;
+  App.render();
+};
+
+/* ============================== 教师：主页 ============================== */
+
+App.loadExams = async function () {
+  App.state.teacher.loadingExams = true;
+  App.render();
+  try {
+    App.state.teacher.exams = await App.api('exams.php', { params: { action: 'list' } });
+  } catch {
+    App.state.teacher.exams = [];
+  }
+  App.state.teacher.loadingExams = false;
+  App.render();
+};
+
+App.renderTeacherHome = function () {
+  const t = App.state.teacher;
+  if (t.view === 'builder') {
+    const step = (t.builder && t.builder.wizardStep) || 3;
+    if (step === 1) return App.renderBuilderStep1();
+    if (step === 2) return App.renderBuilderStep2();
+    return App.renderBuilder();
+  }
+  if (t.view === 'grades') return App.renderGrades();
+  return App.renderTeacherList();
+};
+
+App.renderTeacherList = function () {
+  const t = App.state.teacher;
+  let rows = '';
+  if (t.loadingExams) {
+    rows = `<p style="font-size:14px;opacity:.6;">加载中…</p>`;
+  } else if (t.exams.length === 0) {
+    rows = `<div class="ep-card" style="padding:32px;text-align:center;"><p style="font-size:14px;opacity:.6;">还没有试卷，点击右上角创建第一份吧。</p></div>`;
+  } else {
+    rows = t.exams.map(e => {
+      const confirming = t.confirmDeleteExamId === e.id;
+      return `
+        <div class="ep-card" style="padding:16px;margin-bottom:12px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+            <div>
+              <p style="font-weight:600;margin:0;">${App.esc(e.title)}</p>
+              <p class="ep-mono" style="font-size:12px;opacity:.6;margin:2px 0 0;">${e.questionCount} 题 · 满分 ${e.fullScore} · ${new Date(e.createdAt).toLocaleDateString()}</p>
+            </div>
+            <div style="display:flex;gap:8px;">
+              <button class="ep-btn" onclick="App.openGrades('${e.id}')">阅卷情况 →</button>
+              <button class="ep-btn" onclick="App.openEditExam('${e.id}')">✎ 编辑</button>
+              <button class="ep-btn" style="color:#B23A2E;" onclick="App.confirmDeleteExam('${e.id}')">🗑 删除</button>
+            </div>
+          </div>
+          ${confirming ? `
+            <div class="ep-divider" style="margin-top:12px;padding-top:12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+              <p style="font-size:12px;color:#B23A2E;margin:0;">确认删除《${App.esc(e.title)}》？这会一并删除所有学生的作答记录，且无法恢复。</p>
+              <div style="display:flex;gap:8px;flex-shrink:0;">
+                <button class="ep-btn" onclick="App.state.teacher.confirmDeleteExamId=null;App.render();">取消</button>
+                <button class="ep-btn ep-btn-seal" ${t.deletingExam ? 'disabled' : ''} onclick="App.deleteExam('${e.id}')">确认删除</button>
+              </div>
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }).join('');
+  }
+
+  return `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
+      <h2 class="ep-serif" style="font-size:22px;font-weight:700;margin:0;">试卷管理</h2>
+      <button class="ep-btn ep-btn-primary" onclick="App.openCreateExam()">+ 新建试卷</button>
+    </div>
+    ${rows}
+  `;
+};
+
+App.confirmDeleteExam = function (id) {
+  App.state.teacher.confirmDeleteExamId = id;
+  App.render();
+};
+
+App.deleteExam = async function (id) {
+  App.state.teacher.deletingExam = true;
+  App.render();
+  try {
+    await App.api('exams.php', { method: 'POST', params: { action: 'delete', id } });
+  } catch {}
+  App.state.teacher.deletingExam = false;
+  App.state.teacher.confirmDeleteExamId = null;
+  App.loadExams();
+};
+
+/* ============================== 教师：试卷编辑器 ============================== */
+
+App.GRADES = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6'];
+App.SUB_CATEGORIES = [
+  { id: 'unlimited', label: '不限' },
+  { id: 'comprehension', label: '内容理解题' },
+  { id: 'wording', label: '词句理解题' },
+  { id: 'causal', label: '因果题' },
+  { id: 'summary', label: '概括题' },
+  { id: 'character', label: '人物性格题' },
+  { id: 'inference', label: '推断题' },
+  { id: 'theme', label: '主旨/寓意题' },
+  { id: 'evaluation', label: '评价/证据题' },
+  { id: 'compare', label: '比较题' }
+];
+
+App.MC_SUBTYPES = [
+  { id: 'basic', label: '基础题' },
+  { id: 'pinyin', label: '汉语拼音题' },
+  { id: 'wordchoice', label: '词语选择题' },
+  { id: 'meaning', label: '词义选择题' },
+  { id: 'usage', label: '词语运用题' },
+  { id: 'completion', label: '完成句子题' },
+  { id: 'synonym', label: '同义词题' }
+];
+App.SHORT_SUBTYPES = [
+  { id: 'basic', label: '基础题' },
+  { id: 'cloze', label: '填空题' }
+];
+
+App.emptyMC = () => ({ id: App.randId(), type: 'mc', subtype: 'basic', text: '', targetWord: '', options: ['', ''], correctIndex: 0, fullScore: 2 });
+App.emptyShort = () => ({ id: App.randId(), type: 'short', subtype: 'basic', text: '', rubric: '', fullScore: 5 });
+App.emptyReadingSub = (type) => type === 'mc'
+  ? { id: App.randId(), type: 'mc', text: '', options: ['', ''], correctIndex: 0, fullScore: 2 }
+  : { id: App.randId(), type: 'short', text: '', rubric: '', fullScore: 5 };
+App.emptyReading = () => ({
+  id: App.randId(), type: 'reading',
+  genTitle: '', genVocab: [], genWordCount: 300,
+  passage: '',
+  subQuestions: [App.emptyReadingSub('mc')]
+});
+
+App.openCreateExam = function () {
+  App.state.teacher.builder = { isEdit: false, examId: null, title: '', grade: '', difficulty: 'normal', questions: [], wizardStep: 1 };
+  App.state.teacher.view = 'builder';
+  App.render();
+};
+
+App.openEditExam = async function (id) {
+  const exam = await App.api('exams.php', { params: { action: 'get', id } });
+  App.state.teacher.builder = { isEdit: true, examId: exam.id, title: exam.title, grade: exam.grade || '', difficulty: exam.difficulty || 'normal', questions: exam.questions, wizardStep: 3 };
+  App.state.teacher.view = 'builder';
+  App.render();
+};
+
+App.wizardTitleInput = function (value) {
+  App.state.teacher.builder.title = value;
+  App.render();
+  const el = document.getElementById('wizardTitle');
+  if (el) {
+    el.focus();
+    const len = el.value.length;
+    el.setSelectionRange(len, len);
+  }
+};
+
+App.wizardNextToStep2 = function () {
+  const b = App.state.teacher.builder;
+  if (!b.grade) return;
+  b.wizardStep = 2;
+  App.render();
+};
+
+App.wizardConfirmToStep3 = function () {
+  const b = App.state.teacher.builder;
+  const el = document.getElementById('wizardTitle');
+  const title = (el ? el.value : b.title || '').trim();
+  if (!title) return;
+  b.title = title;
+  b.wizardStep = 3;
+  App.render();
+};
+
+App.renderBuilderStep1 = function () {
+  const b = App.state.teacher.builder;
+  const gradeOptions = App.GRADES.map(g => `<option value="${g}" ${b.grade === g ? 'selected' : ''}>${g}</option>`).join('');
+  const difficultyOptions = App.DIFFICULTIES.map(d => `<option value="${d.id}" ${b.difficulty === d.id ? 'selected' : ''}>${d.label}</option>`).join('');
+  return `
+    <button class="ep-link-btn" style="margin-bottom:16px;" onclick="App.state.teacher.view='list';App.state.teacher.builder=null;App.render();">← 返回列表</button>
+    <h2 class="ep-serif" style="font-size:22px;font-weight:700;margin:0 0 4px;">新建试卷</h2>
+    <p style="font-size:13px;opacity:.6;margin:0 0 20px;">第一步 / 共两步 · 选择年级和难度</p>
+    <div class="ep-card" style="padding:20px;max-width:420px;">
+      <label style="font-size:13px;display:block;margin-bottom:14px;">
+        年级
+        <select style="margin-top:6px;" onchange="App.builderSetGrade(this.value)">
+          <option value="" ${!b.grade ? 'selected' : ''}>请选择年级</option>
+          ${gradeOptions}
+        </select>
+      </label>
+      <label style="font-size:13px;display:block;margin-bottom:18px;">
+        难度
+        <select style="margin-top:6px;" onchange="App.builderSetDifficulty(this.value)">
+          ${difficultyOptions}
+        </select>
+      </label>
+      <button class="ep-btn ep-btn-primary" ${b.grade ? '' : 'disabled'} onclick="App.wizardNextToStep2()">下一步 →</button>
+      ${!b.grade ? `<p style="font-size:12px;color:#B23A2E;margin-top:10px;">请先选择年级才能继续。</p>` : ''}
+    </div>
+  `;
+};
+
+App.renderBuilderStep2 = function () {
+  const b = App.state.teacher.builder;
+  return `
+    <button class="ep-link-btn" style="margin-bottom:16px;" onclick="App.state.teacher.builder.wizardStep=1;App.render();">← 上一步</button>
+    <h2 class="ep-serif" style="font-size:22px;font-weight:700;margin:0 0 4px;">新建试卷</h2>
+    <p style="font-size:13px;opacity:.6;margin:0 0 20px;">第二步 / 共两步 · 给这份试卷起个标题（${App.esc(b.grade)} · ${(App.DIFFICULTIES.find(d => d.id === b.difficulty) || {}).label || '普通'}）</p>
+    <div class="ep-card" style="padding:20px;max-width:420px;">
+      <input id="wizardTitle" style="font-size:16px;margin-bottom:16px;" placeholder="试卷标题，例如：期中语文测评"
+        value="${App.esc(b.title)}" oninput="App.wizardTitleInput(this.value)"
+        onkeydown="if(event.key==='Enter'){event.preventDefault();App.wizardConfirmToStep3();}">
+      <button class="ep-btn ep-btn-primary" ${b.title.trim() ? '' : 'disabled'} onclick="App.wizardConfirmToStep3()">确认 →</button>
+    </div>
+  `;
+};
+
+App.builderSetTitle = function (v) { App.state.teacher.builder.title = v; App.render(); };
+App.builderSetGrade = function (v) { App.state.teacher.builder.grade = v; App.render(); };
+App.builderSetDifficulty = function (v) { App.state.teacher.builder.difficulty = v; App.render(); };
+App.builderAddQuestion = function (type) {
+  if (!App.state.teacher.builder.grade) return;
+  const maker = type === 'mc' ? App.emptyMC : type === 'short' ? App.emptyShort : App.emptyReading;
+  App.state.teacher.builder.questions.push(maker());
+  App.render();
+};
+App.builderRemoveQuestion = function (i) {
+  App.state.teacher.builder.questions.splice(i, 1);
+  App.render();
+};
+App.builderMoveQuestion = function (i, dir) {
+  const qs = App.state.teacher.builder.questions;
+  const j = i + dir;
+  if (j < 0 || j >= qs.length) return;
+  [qs[i], qs[j]] = [qs[j], qs[i]];
+  App.render();
+};
+
+App.DIFFICULTIES = [
+  { id: 'easy', label: '简单' },
+  { id: 'normal', label: '普通' },
+  { id: 'hard', label: '困难' }
+];
+
+App.renderBuilder = function () {
+  const b = App.state.teacher.builder;
+  const canSave = b.title.trim() && b.questions.length > 0;
+  const questionsHtml = b.questions.map((q, i) => App.renderQuestionEditor(q, i, b.questions.length)).join('');
+  const gradeOptions = App.GRADES.map(g => `<option value="${g}" ${b.grade === g ? 'selected' : ''}>${g}</option>`).join('');
+  const difficultyOptions = App.DIFFICULTIES.map(d => `<option value="${d.id}" ${b.difficulty === d.id ? 'selected' : ''}>${d.label}</option>`).join('');
+
+  return `
+    <button class="ep-link-btn" style="margin-bottom:16px;" onclick="App.state.teacher.view='list';App.render();">← 返回列表</button>
+    <h2 class="ep-serif" style="font-size:22px;font-weight:700;margin:0 0 16px;">${b.isEdit ? '编辑试卷' : '编写新试卷'}</h2>
+    <input class="ep-card" style="font-size:16px;margin-bottom:12px;" placeholder="试卷标题，例如：期中语文测评"
+      value="${App.esc(b.title)}" onchange="App.builderSetTitle(this.value)">
+    <div style="margin-bottom:24px;">
+      <label style="font-size:13px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        年级
+        <select style="width:auto;padding:8px 12px;" onchange="App.builderSetGrade(this.value)">
+          <option value="" ${!b.grade ? 'selected' : ''}>请选择年级</option>
+          ${gradeOptions}
+        </select>
+        ${b.grade ? `
+          难度
+          <select style="width:auto;padding:8px 12px;" onchange="App.builderSetDifficulty(this.value)">
+            ${difficultyOptions}
+          </select>
+        ` : ''}
+        <span style="font-size:12px;opacity:.6;">用于AI生成内容时匹配对应年级和难度</span>
+      </label>
+      ${!b.grade ? `<p style="font-size:12px;color:#B23A2E;margin:6px 0 0;">请先选择年级，才能添加题目和使用AI生成（💡）功能。</p>` : ''}
+    </div>
+    ${questionsHtml}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:16px 0 24px;">
+      <button class="ep-btn" ${b.grade ? '' : 'disabled'} title="${b.grade ? '' : '请先选择年级'}" onclick="App.builderAddQuestion('mc')">+ 添加选择题</button>
+      <button class="ep-btn" ${b.grade ? '' : 'disabled'} title="${b.grade ? '' : '请先选择年级'}" onclick="App.builderAddQuestion('short')">+ 添加作答题</button>
+      <button class="ep-btn" ${b.grade ? '' : 'disabled'} title="${b.grade ? '' : '请先选择年级'}" onclick="App.builderAddQuestion('reading')">+ 添加阅读理解</button>
+    </div>
+    <button class="ep-btn ep-btn-primary" ${canSave ? '' : 'disabled'} onclick="App.saveBuilder()">
+      💾 ${b.isEdit ? '保存修改' : '发布试卷'}
+    </button>
+  `;
+};
+
+App.renderQuestionEditor = function (q, i, total) {
+  const noGrade = !App.state.teacher.builder.grade;
+  const upBtn = `<button class="ep-btn" style="padding:4px 8px;" ${i === 0 ? 'disabled' : ''} onclick="App.builderMoveQuestion(${i},-1)">▲</button>`;
+  const downBtn = `<button class="ep-btn" style="padding:4px 8px;" ${i === total - 1 ? 'disabled' : ''} onclick="App.builderMoveQuestion(${i},1)">▼</button>`;
+  const removeBtn = `<button class="ep-btn" style="padding:4px 8px;color:#B23A2E;" onclick="App.builderRemoveQuestion(${i})">🗑</button>`;
+  const header = (label, extraBtn = '', subtypeHtml = '') => `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px;">
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+        <span class="ep-tag ep-mono" style="font-size:12px;padding:4px 8px;border-radius:4px;">第${i + 1}题 · ${label}</span>
+        ${subtypeHtml}
+      </div>
+      <div style="display:flex;gap:4px;">${extraBtn}${upBtn}${downBtn}${removeBtn}</div>
+    </div>
+  `;
+
+  if (q.type === 'mc') {
+    const subtype = q.subtype || 'basic';
+    const subtypeSelect = `
+      <select style="font-size:12px;padding:3px 6px;" onchange="App.qSetSubtype(${i}, this.value)">
+        ${App.MC_SUBTYPES.map(st => `<option value="${st.id}" ${subtype === st.id ? 'selected' : ''}>${st.label}</option>`).join('')}
+      </select>
+    `;
+    const optsHtml = App.renderMcOptions(i, q, subtype === 'usage' ? q.targetWord : null);
+
+    if (subtype === 'usage') {
+      const genBtnWord = `<button class="ep-btn" style="padding:4px 8px;" ${(q._generating || noGrade) ? 'disabled' : ''} title="${noGrade ? '请先在上方选择年级' : 'AI根据词汇自动生成整道题'}" onclick="App.generateWordQuestion(${i})">${q._generating ? '⏳ 生成中…' : '💡 AI生成'}</button>`;
+      return `
+        <div class="ep-card" style="padding:16px;margin-bottom:12px;">
+          ${header('选择题', genBtnWord, subtypeSelect)}
+          <p style="font-size:12px;opacity:.6;margin:0 0 8px;">给一个词汇，AI会写4个都用到这个词的句子，只有一句用得对，学生要选出用法最恰当的一句。</p>
+          <input id="targetword-${i}" placeholder="目标词汇，例如：唠叨" style="margin-bottom:8px;"
+            value="${App.esc(q.targetWord)}" onchange="App.qSetField(${i},'targetWord',this.value)">
+          ${q._genError ? `<p style="font-size:12px;color:#B23A2E;margin:0 0 8px;">${App.esc(q._genError)}</p>` : ''}
+          ${q.text ? `<p class="ep-mono" style="font-size:12px;opacity:.6;margin:0 0 8px;">${App.esc(q.text)}</p>` : ''}
+          ${optsHtml}
+          <div style="display:flex;justify-content:flex-end;align-items:center;margin-top:8px;">
+            <label style="font-size:12px;display:flex;align-items:center;gap:4px;">满分
+              <input type="number" style="width:64px;" value="${q.fullScore}" onchange="App.qSetField(${i},'fullScore',Number(this.value)||0)"> 分
+            </label>
+          </div>
+        </div>
+      `;
+    }
+
+    if (subtype === 'wordchoice' || subtype === 'meaning' || subtype === 'pinyin' || subtype === 'completion' || subtype === 'synonym') {
+      const genBtnWord = `<button class="ep-btn" style="padding:4px 8px;" ${(q._generating || noGrade) ? 'disabled' : ''} title="${noGrade ? '请先在上方选择年级' : 'AI根据词汇自动生成整道题'}" onclick="App.generateWordQuestion(${i})">${q._generating ? '⏳ 生成中…' : '💡 AI生成'}</button>`;
+      const hintMap = {
+        wordchoice: '给一个词汇，AI会造句挖空，并生成选项让学生选出正确的词填空。',
+        meaning: '给一个词汇，AI会造句并给这个词加下划线，再生成选项让学生选出正确的词义。',
+        pinyin: '给一个词汇，AI会造句并给这个词加下划线，再生成选项让学生选出这个词在句中的正确拼音。',
+        completion: '给一个词汇，AI会写一句话的前半句（用上这个词），再生成4个选项作为后半句，学生要选出语意最连贯的那个。',
+        synonym: '给一个词汇，AI会造句并给这个词加下划线，再生成4组近义词选项，学生要选出放进句子里意思依然通顺贴切的那组。'
+      };
+      const placeholderMap = { wordchoice: '精彩', meaning: '善良', pinyin: '重庆', completion: '慢吞吞', synonym: '严格' };
+      const hint = hintMap[subtype];
+      const wordPlaceholder = placeholderMap[subtype];
+      const underlineTypes = ['meaning', 'pinyin', 'completion', 'synonym'];
+      return `
+        <div class="ep-card" style="padding:16px;margin-bottom:12px;">
+          ${header('选择题', genBtnWord, subtypeSelect)}
+          <p style="font-size:12px;opacity:.6;margin:0 0 8px;">${hint}</p>
+          <input id="targetword-${i}" placeholder="目标词汇，例如：${wordPlaceholder}" style="margin-bottom:8px;"
+            value="${App.esc(q.targetWord)}" onchange="App.qSetField(${i},'targetWord',this.value)">
+          ${q._genError ? `<p style="font-size:12px;color:#B23A2E;margin:0 0 8px;">${App.esc(q._genError)}</p>` : ''}
+          ${q.text ? `
+            <textarea rows="2" placeholder="AI生成的句子（可编辑）" style="margin-bottom:8px;" onchange="App.qSetField(${i},'text',this.value)">${App.esc(q.text)}</textarea>
+            ${underlineTypes.includes(subtype) ? `
+              <div class="ep-ruled" style="padding:8px 10px;border-radius:4px;margin-bottom:8px;font-size:13px;">
+                <span class="ep-mono" style="font-size:11px;opacity:.5;margin-right:4px;">学生会看到：</span>${App.escWithUnderline(q.text, q.targetWord)}
+              </div>
+            ` : ''}
+          ` : ''}
+          ${optsHtml}
+          <div style="display:flex;justify-content:flex-end;align-items:center;margin-top:8px;">
+            <label style="font-size:12px;display:flex;align-items:center;gap:4px;">满分
+              <input type="number" style="width:64px;" value="${q.fullScore}" onchange="App.qSetField(${i},'fullScore',Number(this.value)||0)"> 分
+            </label>
+          </div>
+        </div>
+      `;
+    }
+
+    const genBtn = `<button class="ep-btn" style="padding:4px 8px;" ${(q._generating || noGrade) ? 'disabled' : ''} title="${noGrade ? '请先在上方选择年级' : 'AI根据题干自动生成选项'}" onclick="App.generateOptions(${i})">${q._generating ? '⏳' : '💡'}</button>`;
+    return `
+      <div class="ep-card" style="padding:16px;margin-bottom:12px;">
+        ${header('选择题', genBtn, subtypeSelect)}
+        <textarea id="qtext-${i}" rows="2" placeholder="题干" style="margin-bottom:8px;" onchange="App.qSetField(${i},'text',this.value)">${App.esc(q.text)}</textarea>
+        ${q._genError ? `<p style="font-size:12px;color:#B23A2E;margin:0 0 8px;">${App.esc(q._genError)}</p>` : ''}
+        ${optsHtml}
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
+          <button class="ep-btn" style="font-size:12px;" onclick="App.mcAddOption(${i})">+ 添加选项</button>
+          <label style="font-size:12px;display:flex;align-items:center;gap:4px;">满分
+            <input type="number" style="width:64px;" value="${q.fullScore}" onchange="App.qSetField(${i},'fullScore',Number(this.value)||0)"> 分
+          </label>
+        </div>
+      </div>
+    `;
+  }
+
+  if (q.type === 'short') {
+    const subtype = q.subtype || 'basic';
+    const subtypeSelect = `
+      <select style="font-size:12px;padding:3px 6px;" onchange="App.qSetSubtype(${i}, this.value)">
+        ${App.SHORT_SUBTYPES.map(st => `<option value="${st.id}" ${subtype === st.id ? 'selected' : ''}>${st.label}</option>`).join('')}
+      </select>
+    `;
+
+    if (subtype === 'cloze') {
+      const genBtnWord = `<button class="ep-btn" style="padding:4px 8px;" ${(q._generating || noGrade) ? 'disabled' : ''} title="${noGrade ? '请先在上方选择年级' : 'AI根据词汇自动生成整道题'}" onclick="App.generateWordQuestion(${i})">${q._generating ? '⏳ 生成中…' : '💡 AI生成'}</button>`;
+      return `
+        <div class="ep-card" style="padding:16px;margin-bottom:12px;">
+          ${header('作答题', genBtnWord, subtypeSelect)}
+          <p style="font-size:12px;opacity:.6;margin:0 0 8px;">给一个词汇，AI会造句挖空，学生需要自己打字填空（不提供选项）。</p>
+          <input id="targetword-${i}" placeholder="目标词汇，例如：精彩" style="margin-bottom:8px;"
+            value="${App.esc(q.targetWord)}" onchange="App.qSetField(${i},'targetWord',this.value)">
+          ${q._genError ? `<p style="font-size:12px;color:#B23A2E;margin:0 0 8px;">${App.esc(q._genError)}</p>` : ''}
+          ${q.text ? `<textarea rows="2" placeholder="AI生成的句子（可编辑）" style="margin-bottom:8px;" onchange="App.qSetField(${i},'text',this.value)">${App.esc(q.text)}</textarea>` : ''}
+          <textarea rows="2" placeholder="评分要点 / 参考答案（AI生成，可编辑）" style="margin-bottom:8px;" onchange="App.qSetField(${i},'rubric',this.value)">${App.esc(q.rubric)}</textarea>
+          <label style="font-size:12px;display:flex;justify-content:flex-end;align-items:center;gap:4px;">满分
+            <input type="number" style="width:64px;" value="${q.fullScore}" onchange="App.qSetField(${i},'fullScore',Number(this.value)||0)"> 分
+          </label>
+        </div>
+      `;
+    }
+
+    const genBtnShort = `<button class="ep-btn" style="padding:4px 8px;" ${(q._generating || noGrade) ? 'disabled' : ''} title="${noGrade ? '请先在上方选择年级' : 'AI根据题干自动生成评分要点'}" onclick="App.generateRubric(${i})">${q._generating ? '⏳' : '💡'}</button>`;
+    return `
+      <div class="ep-card" style="padding:16px;margin-bottom:12px;">
+        ${header('作答题', genBtnShort, subtypeSelect)}
+        <textarea id="stext-${i}" rows="2" placeholder="题干" style="margin-bottom:8px;" onchange="App.qSetField(${i},'text',this.value)">${App.esc(q.text)}</textarea>
+        ${q._genError ? `<p style="font-size:12px;color:#B23A2E;margin:0 0 8px;">${App.esc(q._genError)}</p>` : ''}
+        <textarea rows="2" placeholder="评分要点 / 参考答案（AI将依据这里的要点评分）" style="margin-bottom:8px;" onchange="App.qSetField(${i},'rubric',this.value)">${App.esc(q.rubric)}</textarea>
+        <label style="font-size:12px;display:flex;justify-content:flex-end;align-items:center;gap:4px;">满分
+          <input type="number" style="width:64px;" value="${q.fullScore}" onchange="App.qSetField(${i},'fullScore',Number(this.value)||0)"> 分
+        </label>
+      </div>
+    `;
+  }
+
+  // reading
+  const subs = q.subQuestions.map((s, si) => App.renderReadingSub(q, i, s, si)).join('');
+  const genBtnArticle = `<button class="ep-btn" style="padding:4px 8px;" ${(q._generating || noGrade) ? 'disabled' : ''} title="${noGrade ? '请先在上方选择年级' : ''}" onclick="App.generateArticle(${i})">${q._generating ? '⏳ 生成中…' : '💡 生成文章'}</button>`;
+  const genBtnTitle = `<button class="ep-btn" style="padding:4px 6px;flex-shrink:0;" ${(q._titleGenerating || noGrade) ? 'disabled' : ''} title="${noGrade ? '请先在上方选择年级' : 'AI根据词汇自动生成标题'}" onclick="App.generateTitle(${i})">${q._titleGenerating ? '⏳' : '💡'}</button>`;
+  const vocabChips = (q.genVocab || []).map((w, wi) => App.vocabChipHtml(i, w, wi)).join('');
+
+  return `
+    <div class="ep-card" style="padding:16px;margin-bottom:12px;">
+      ${header('阅读理解')}
+      <div class="ep-ruled" style="padding:12px;border-radius:4px;margin-bottom:12px;">
+        <p class="ep-mono" style="font-size:12px;opacity:.6;margin:0 0 8px;">AI 生成文章</p>
+        <div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap;margin-bottom:8px;">
+          <div style="flex:1;min-width:140px;display:flex;gap:4px;">
+            <input id="rtitle-${i}" placeholder="文章标题（可留空，AI也能帮忙想）" style="flex:1;" value="${App.esc(q.genTitle)}" onchange="App.qSetField(${i},'genTitle',this.value)">
+            ${genBtnTitle}
+          </div>
+          <div style="flex:2;min-width:220px;background:#FAFAF8;border:1px solid #D8DCCB;border-radius:4px;padding:6px;display:flex;flex-wrap:wrap;align-items:center;gap:4px;">
+            ${vocabChips}
+            <input id="vocabinput-${i}" placeholder="输入词汇后按回车" style="border:none;background:transparent;flex:1;min-width:90px;padding:4px;"
+              onkeydown="if(event.key==='Enter'){event.preventDefault();App.vocabAddFromInput(${i});}">
+          </div>
+          <input id="rwc-${i}" type="number" placeholder="字数" style="width:90px;" value="${q.genWordCount}" onchange="App.qSetField(${i},'genWordCount',Number(this.value)||0)">
+        </div>
+        ${q._genError ? `<p style="font-size:12px;color:#B23A2E;margin:0 0 8px;">${App.esc(q._genError)}</p>` : ''}
+        ${genBtnArticle}
+      </div>
+      <textarea rows="6" placeholder="文章内容（AI生成后会出现在这里，也可以手动粘贴/修改）" style="margin-bottom:12px;" onchange="App.qSetField(${i},'passage',this.value)">${App.esc(q.passage)}</textarea>
+      ${subs}
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="ep-btn" style="font-size:12px;" onclick="App.subAddTyped(${i},'mc')">+ 添加选择题小题</button>
+        <button class="ep-btn" style="font-size:12px;" onclick="App.subAddTyped(${i},'short')">+ 添加作答题小题</button>
+      </div>
+    </div>
+  `;
+};
+
+App.vocabChipHtml = function (i, word, idx) {
+  return `
+    <span style="position:relative;display:inline-flex;align-items:center;padding:4px 18px 4px 8px;border:1px solid #D8DCCB;border-radius:4px;background:#fff;font-size:12px;line-height:1.2;">
+      ${App.esc(word)}
+      <button onclick="App.vocabRemove(${i},${idx})" title="删除"
+        style="position:absolute;top:-6px;right:-6px;width:16px;height:16px;border-radius:50%;background:#B23A2E;color:#fff;border:none;font-size:9px;line-height:1;cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center;">✕</button>
+    </span>
+  `;
+};
+
+App.renderReadingSub = function (q, qi, s, si) {
+  const noGrade = !App.state.teacher.builder.grade;
+  const total = q.subQuestions.length;
+  const upBtn = `<button class="ep-btn" style="padding:2px 6px;" ${si === 0 ? 'disabled' : ''} onclick="App.subMoveQuestion(${qi},${si},-1)">▲</button>`;
+  const downBtn = `<button class="ep-btn" style="padding:2px 6px;" ${si === total - 1 ? 'disabled' : ''} onclick="App.subMoveQuestion(${qi},${si},1)">▼</button>`;
+  const removeBtn = total > 1 ? `<button class="ep-btn" style="padding:2px 8px;" onclick="App.subRemove(${qi},${si})">🗑</button>` : '';
+  const typeLabel = s.type === 'mc' ? '选择题' : '作答题';
+
+  const categoryDropdown = s._pickingCategory ? `
+    <div style="position:absolute;top:100%;right:0;z-index:30;margin-top:4px;background:#fff;border:1px solid #D8DCCB;border-radius:4px;padding:8px;box-shadow:0 6px 16px rgba(27,42,74,.15);white-space:nowrap;">
+      <p style="font-size:11px;opacity:.6;margin:0 0 6px;">选择题目类型：</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;">
+        ${App.SUB_CATEGORIES.map(c => `<button class="ep-btn" style="font-size:12px;padding:4px 10px;text-align:left;" onclick="App.generateSubQuestion(${qi},${si},'${c.id}')">${c.label}</button>`).join('')}
+      </div>
+    </div>
+  ` : '';
+  const genBtnWrap = `
+    <div style="position:relative;display:inline-block;">
+      <button class="ep-btn" style="padding:2px 8px;" ${noGrade ? 'disabled' : ''} title="${noGrade ? '请先在上方选择年级' : 'AI生成题目和答案'}" onclick="App.subToggleCategoryPicker(${qi},${si})">${s._generating ? '⏳' : '💡'}</button>
+      ${categoryDropdown}
+    </div>
+  `;
+
+  let body;
+  if (s.type === 'mc') {
+    const opts = s.options.map((opt, oi) => `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+        <input type="radio" ${s.correctIndex === oi ? 'checked' : ''} onchange="App.subMcSetCorrect(${qi},${si},${oi})">
+        <input style="flex:1;" placeholder="选项 ${String.fromCharCode(65 + oi)}" value="${App.esc(opt)}" onchange="App.subMcSetOption(${qi},${si},${oi},this.value)">
+        ${s.options.length > 2 ? `<button class="ep-btn" style="padding:2px 8px;" onclick="App.subMcRemoveOption(${qi},${si},${oi})">🗑</button>` : ''}
+      </div>
+    `).join('');
+    body = `
+      <textarea rows="2" placeholder="小题题干" style="margin-bottom:8px;" onchange="App.subSetField(${qi},${si},'text',this.value)">${App.esc(s.text)}</textarea>
+      ${opts}
+      <button class="ep-btn" style="font-size:12px;margin-top:4px;" onclick="App.subMcAddOption(${qi},${si})">+ 添加选项</button>
+    `;
+  } else {
+    body = `
+      <textarea rows="2" placeholder="小题题干" style="margin-bottom:8px;" onchange="App.subSetField(${qi},${si},'text',this.value)">${App.esc(s.text)}</textarea>
+      <textarea rows="2" placeholder="评分要点 / 参考答案" style="margin-bottom:8px;" onchange="App.subSetField(${qi},${si},'rubric',this.value)">${App.esc(s.rubric)}</textarea>
+    `;
+  }
+
+  return `
+    <div class="ep-ruled" style="padding:12px;border-radius:4px;margin-bottom:8px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <span class="ep-mono" style="font-size:12px;opacity:.7;">小题 ${si + 1} · ${typeLabel}</span>
+        <div style="display:flex;gap:4px;">${genBtnWrap}${upBtn}${downBtn}${removeBtn}</div>
+      </div>
+      ${s._genError ? `<p style="font-size:12px;color:#B23A2E;margin:0 0 8px;">${App.esc(s._genError)}</p>` : ''}
+      ${body}
+      <label style="font-size:12px;display:flex;justify-content:flex-end;align-items:center;gap:4px;">满分
+        <input type="number" style="width:64px;" value="${s.fullScore}" onchange="App.subSetField(${qi},${si},'fullScore',Number(this.value)||0)"> 分
+      </label>
+    </div>
+  `;
+};
+
+App.qSetField = function (i, field, value) {
+  App.state.teacher.builder.questions[i][field] = value;
+};
+App.qSetSubtype = function (i, subtype) {
+  const q = App.state.teacher.builder.questions[i];
+  q.subtype = subtype;
+  // 切换题型意味着题目内容的组织方式完全不一样了，清空旧内容避免混淆
+  q.text = '';
+  q.targetWord = '';
+  q.options = (subtype === 'usage') ? ['', '', '', ''] : ['', ''];
+  q.correctIndex = 0;
+  q.rubric = '';
+  q._genError = '';
+  if (q.type === 'short') {
+    q.fullScore = subtype === 'cloze' ? 2 : 5;
+  }
+  App.render();
+};
+App.renderMcOptions = function (i, q, underlineWord) {
+  return q.options.map((opt, oi) => `
+    <div style="margin-bottom:6px;">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <input type="radio" ${q.correctIndex === oi ? 'checked' : ''} onchange="App.mcSetCorrect(${i},${oi})">
+        <input style="flex:1;" placeholder="选项 ${String.fromCharCode(65 + oi)}" value="${App.esc(opt)}"
+          onchange="App.mcSetOption(${i},${oi},this.value)">
+        ${q.options.length > 2 ? `<button class="ep-btn" style="padding:2px 8px;" onclick="App.mcRemoveOption(${i},${oi})">🗑</button>` : ''}
+      </div>
+      ${underlineWord && opt ? `<div class="ep-ruled" style="padding:4px 8px;border-radius:4px;margin:4px 0 0 26px;font-size:12px;">${App.escWithUnderline(opt, underlineWord)}</div>` : ''}
+    </div>
+  `).join('');
+};
+App.mcSetCorrect = function (i, oi) { App.state.teacher.builder.questions[i].correctIndex = oi; App.render(); };
+App.mcSetOption = function (i, oi, value) { App.state.teacher.builder.questions[i].options[oi] = value; };
+App.mcAddOption = function (i) { App.state.teacher.builder.questions[i].options.push(''); App.render(); };
+App.mcRemoveOption = function (i, oi) {
+  const q = App.state.teacher.builder.questions[i];
+  q.options.splice(oi, 1);
+  if (q.correctIndex >= q.options.length) q.correctIndex = 0;
+  App.render();
+};
+App.mcLetterOf = function (item) {
+  const LETTERS = ['A', 'B', 'C', 'D'];
+  if (typeof item.correctIndex === 'number' && item.options && item.options[item.correctIndex] && item.options[item.correctIndex].trim()) {
+    return LETTERS[item.correctIndex] || null;
+  }
+  return null;
+};
+App.avoidLetterFrom = function (items) {
+  const letters = items.map(App.mcLetterOf).filter(Boolean);
+  if (letters.length >= 3) {
+    const last3 = letters.slice(-3);
+    if (last3[0] === last3[1] && last3[1] === last3[2]) return last3[0];
+  }
+  return '';
+};
+
+App.generateOptions = async function (i) {
+  const q = App.state.teacher.builder.questions[i];
+  const grade = App.state.teacher.builder.grade || '';
+  const difficulty = App.state.teacher.builder.difficulty || 'normal';
+  if (!grade) {
+    q._genError = '请先在上方选择年级，才能使用AI生成。';
+    App.render();
+    return;
+  }
+  const textEl = document.getElementById('qtext-' + i);
+  const text = (textEl ? textEl.value : q.text || '').trim();
+  q.text = text;
+  q._genError = '';
+  if (!text) {
+    q._genError = '请先输入题干，再点击自动生成选项。';
+    App.render();
+    return;
+  }
+  const priorMc = App.state.teacher.builder.questions.slice(0, i).filter(qq => qq.type === 'mc');
+  const avoidLetter = App.avoidLetterFrom(priorMc);
+  q._generating = true;
+  App.render();
+  try {
+    const r = await App.api('generate_options.php', { method: 'POST', body: { question: text, grade, difficulty, avoidLetter } });
+    q.options = r.options;
+    q.correctIndex = r.correctIndex;
+  } catch (e) {
+    q._genError = 'AI生成选项失败（' + (e.message || '未知错误') + '），请手动填写或重试。';
+  }
+  q._generating = false;
+  App.render();
+};
+
+App.generateWordQuestion = async function (i) {
+  const q = App.state.teacher.builder.questions[i];
+  const grade = App.state.teacher.builder.grade || '';
+  const difficulty = App.state.teacher.builder.difficulty || 'normal';
+  if (!grade) {
+    q._genError = '请先在上方选择年级，才能使用AI生成。';
+    App.render();
+    return;
+  }
+  const wordEl = document.getElementById('targetword-' + i);
+  const word = (wordEl ? wordEl.value : q.targetWord || '').trim();
+  q.targetWord = word;
+  q._genError = '';
+  if (!word) {
+    q._genError = '请先填写目标词汇，再点击AI生成。';
+    App.render();
+    return;
+  }
+  const priorMc = q.type === 'mc'
+    ? App.state.teacher.builder.questions.slice(0, i).filter(qq => qq.type === 'mc')
+    : [];
+  const avoidLetter = App.avoidLetterFrom(priorMc);
+  q._generating = true;
+  App.render();
+  try {
+    const r = await App.api('generate_word_question.php', {
+      method: 'POST',
+      body: { subtype: q.subtype, word, grade, difficulty, avoidLetter }
+    });
+    if (q.subtype === 'usage') {
+      q.text = `下列句子中，"${word}"使用最恰当的一项是：`;
+      q.options = r.options;
+      q.correctIndex = r.correctIndex;
+    } else {
+      q.text = r.sentence;
+      if (q.type === 'mc') {
+        q.options = r.options;
+        q.correctIndex = r.correctIndex;
+      } else {
+        q.rubric = r.rubric;
+      }
+    }
+  } catch (e) {
+    q._genError = 'AI生成失败（' + (e.message || '未知错误') + '），请重试或手动填写。';
+  }
+  q._generating = false;
+  App.render();
+};
+
+App.generateRubric = async function (i) {
+  const q = App.state.teacher.builder.questions[i];
+  const grade = App.state.teacher.builder.grade || '';
+  const difficulty = App.state.teacher.builder.difficulty || 'normal';
+  if (!grade) {
+    q._genError = '请先在上方选择年级，才能使用AI生成。';
+    App.render();
+    return;
+  }
+  const textEl = document.getElementById('stext-' + i);
+  const text = (textEl ? textEl.value : q.text || '').trim();
+  q.text = text;
+  q._genError = '';
+  if (!text) {
+    q._genError = '请先输入题干，再点击自动生成评分要点。';
+    App.render();
+    return;
+  }
+  q._generating = true;
+  App.render();
+  try {
+    const r = await App.api('generate_rubric.php', { method: 'POST', body: { question: text, grade, difficulty } });
+    q.rubric = r.rubric;
+  } catch (e) {
+    q._genError = 'AI生成评分要点失败（' + (e.message || '未知错误') + '），请手动填写或重试。';
+  }
+  q._generating = false;
+  App.render();
+};
+App.subSetField = function (i, si, field, value) {
+  App.state.teacher.builder.questions[i].subQuestions[si][field] = value;
+};
+App.subAddTyped = function (i, type) {
+  App.state.teacher.builder.questions[i].subQuestions.push(App.emptyReadingSub(type));
+  App.render();
+};
+App.subRemove = function (i, si) {
+  App.state.teacher.builder.questions[i].subQuestions.splice(si, 1);
+  App.render();
+};
+App.subMoveQuestion = function (qi, si, dir) {
+  const subs = App.state.teacher.builder.questions[qi].subQuestions;
+  const j = si + dir;
+  if (j < 0 || j >= subs.length) return;
+  [subs[si], subs[j]] = [subs[j], subs[si]];
+  App.render();
+};
+App.subMcSetCorrect = function (qi, si, oi) {
+  App.state.teacher.builder.questions[qi].subQuestions[si].correctIndex = oi;
+  App.render();
+};
+App.subMcSetOption = function (qi, si, oi, value) {
+  App.state.teacher.builder.questions[qi].subQuestions[si].options[oi] = value;
+};
+App.subMcAddOption = function (qi, si) {
+  App.state.teacher.builder.questions[qi].subQuestions[si].options.push('');
+  App.render();
+};
+App.subMcRemoveOption = function (qi, si, oi) {
+  const s = App.state.teacher.builder.questions[qi].subQuestions[si];
+  s.options.splice(oi, 1);
+  if (s.correctIndex >= s.options.length) s.correctIndex = 0;
+  App.render();
+};
+App.subToggleCategoryPicker = function (qi, si) {
+  const s = App.state.teacher.builder.questions[qi].subQuestions[si];
+  s._pickingCategory = !s._pickingCategory;
+  App.render();
+};
+
+App.vocabAddFromInput = function (i) {
+  const el = document.getElementById('vocabinput-' + i);
+  if (!el) return;
+  const val = el.value.trim();
+  if (!val) return;
+  const q = App.state.teacher.builder.questions[i];
+  q.genVocab = q.genVocab || [];
+  q.genVocab.push(val);
+  App.render();
+  const newEl = document.getElementById('vocabinput-' + i);
+  if (newEl) newEl.focus();
+};
+App.vocabRemove = function (i, idx) {
+  const q = App.state.teacher.builder.questions[i];
+  q.genVocab.splice(idx, 1);
+  App.render();
+};
+
+App.generateArticle = async function (i) {
+  const q = App.state.teacher.builder.questions[i];
+  const grade = App.state.teacher.builder.grade || '';
+  const difficulty = App.state.teacher.builder.difficulty || 'normal';
+  if (!grade) {
+    q._genError = '请先在上方选择年级，才能使用AI生成。';
+    App.render();
+    return;
+  }
+  const titleEl = document.getElementById('rtitle-' + i);
+  const wcEl = document.getElementById('rwc-' + i);
+  const vocabInputEl = document.getElementById('vocabinput-' + i);
+  const title = (titleEl ? titleEl.value : q.genTitle || '').trim();
+  const wordCount = Number(wcEl ? wcEl.value : q.genWordCount) || 300;
+  q.genTitle = title;
+  q.genWordCount = wordCount;
+  q.genVocab = q.genVocab || [];
+  // 如果老师输了词但还没按回车，生成前顺手也算进去
+  if (vocabInputEl && vocabInputEl.value.trim()) {
+    q.genVocab.push(vocabInputEl.value.trim());
+  }
+  q._genError = '';
+
+  const vocab = q.genVocab;
+  if (vocab.length === 0) {
+    q._genError = '请先至少填写一个词汇，再点击生成文章。';
+    App.render();
+    return;
+  }
+  q._generating = true;
+  App.render();
+  try {
+    const r = await App.api('generate_article.php', { method: 'POST', body: { title, vocab, wordCount, grade, difficulty } });
+    q.passage = r.passage;
+    if (!title && r.title) q.genTitle = r.title; // 标题没填的话，AI顺手生成的标题也一并带回来
+  } catch (e) {
+    q._genError = 'AI生成文章失败（' + (e.message || '未知错误') + '），请重试或手动填写文章内容。';
+  }
+  q._generating = false;
+  App.render();
+};
+
+App.generateTitle = async function (i) {
+  const q = App.state.teacher.builder.questions[i];
+  const grade = App.state.teacher.builder.grade || '';
+  const difficulty = App.state.teacher.builder.difficulty || 'normal';
+  if (!grade) {
+    q._genError = '请先在上方选择年级，才能使用AI生成。';
+    App.render();
+    return;
+  }
+  const vocabInputEl = document.getElementById('vocabinput-' + i);
+  q.genVocab = q.genVocab || [];
+  if (vocabInputEl && vocabInputEl.value.trim()) {
+    q.genVocab.push(vocabInputEl.value.trim());
+  }
+  q._genError = '';
+  if (q.genVocab.length === 0) {
+    q._genError = '请先至少填写一个词汇，AI才能据此想标题。';
+    App.render();
+    return;
+  }
+  q._titleGenerating = true;
+  App.render();
+  try {
+    const r = await App.api('generate_title.php', { method: 'POST', body: { vocab: q.genVocab, grade, difficulty } });
+    q.genTitle = r.title;
+  } catch (e) {
+    q._genError = 'AI生成标题失败（' + (e.message || '未知错误') + '），请重试或手动填写。';
+  }
+  q._titleGenerating = false;
+  App.render();
+};
+
+App.generateSubQuestion = async function (qi, si, category) {
+  const q = App.state.teacher.builder.questions[qi];
+  const s = q.subQuestions[si];
+  const grade = App.state.teacher.builder.grade || '';
+  const difficulty = App.state.teacher.builder.difficulty || 'normal';
+  s._pickingCategory = false;
+  s._genError = '';
+  if (!grade) {
+    s._genError = '请先在上方选择年级，才能使用AI生成。';
+    App.render();
+    return;
+  }
+  if (!q.passage || !q.passage.trim()) {
+    s._genError = '请先生成或填写文章内容，再生成小题。';
+    App.render();
+    return;
+  }
+  let avoidLetter = '';
+  if (s.type === 'mc') {
+    const priorSubMc = q.subQuestions.slice(0, si).filter(x => x.type === 'mc');
+    avoidLetter = App.avoidLetterFrom(priorSubMc);
+  }
+  s._generating = true;
+  App.render();
+  try {
+    const r = await App.api('generate_subquestion.php', {
+      method: 'POST',
+      body: { passage: q.passage, category, type: s.type, grade, difficulty, avoidLetter }
+    });
+    s.text = r.question;
+    if (s.type === 'mc') {
+      s.options = r.options;
+      s.correctIndex = r.correctIndex;
+    } else {
+      s.rubric = r.rubric;
+    }
+  } catch (e) {
+    s._genError = 'AI生成小题失败（' + (e.message || '未知错误') + '），请重试或手动填写。';
+  }
+  s._generating = false;
+  App.render();
+};
+
+App.saveBuilder = async function () {
+  const b = App.state.teacher.builder;
+  const payload = { title: b.title.trim(), grade: b.grade || '', difficulty: b.difficulty || 'normal', questions: b.questions };
+  if (b.isEdit) {
+    await App.api('exams.php', { method: 'POST', params: { action: 'update', id: b.examId }, body: payload });
+  } else {
+    await App.api('exams.php', { method: 'POST', params: { action: 'create' }, body: payload });
+  }
+  App.state.teacher.view = 'list';
+  App.state.teacher.builder = null;
+  App.loadExams();
+};
+
+/* ============================== 教师：阅卷 ============================== */
+
+App.openGrades = async function (examId) {
+  App.state.teacher.view = 'grades';
+  App.state.teacher.grades = { examId, exam: null, list: [], query: '', rowState: {} };
+  App.render();
+  await App.loadGrades(examId);
+};
+
+App.loadGrades = async function (examId) {
+  const g = App.state.teacher.grades;
+  const [exam, list] = await Promise.all([
+    App.api('exams.php', { params: { action: 'get', id: examId } }),
+    App.api('submissions.php', { params: { action: 'list', exam_id: examId } })
+  ]);
+  g.exam = exam;
+  g.list = list;
+  App.render();
+};
+
+App.gradesSetQuery = function (v) { App.state.teacher.grades.query = v; App.render(); };
+
+App.pqType = function (pq) {
+  if (pq.label === '阅读理解') return 'reading';
+  if (typeof pq.correctness === 'boolean') return 'mc';
+  return 'short';
+};
+App.pqStyle = {
+  mc: { tag: 'ep-tag-green', border: '#2F6F4E', icon: '✓', label: '选择题' },
+  short: { tag: 'ep-tag', border: '#B23A2E', icon: '✎', label: '作答题' },
+  reading: { tag: 'ep-tag-blue', border: '#2C5F7C', icon: '📖', label: '阅读理解' }
+};
+
+App.examFullScore = function (questions) {
+  let total = 0;
+  questions.forEach(q => {
+    if (q.type === 'reading') q.subQuestions.forEach(s => total += s.fullScore);
+    else total += q.fullScore;
+  });
+  return total;
+};
+
+App.scoreBadgeHtml = function (earned, full, big = false) {
+  const isFull = full > 0 && earned >= full;
+  const cls = isFull ? 'ep-tag-green' : 'ep-tag';
+  const size = big ? 'font-size:22px;padding:10px 18px;' : 'font-size:14px;padding:4px 12px;';
+  return `<span class="ep-score-badge ${cls}" style="${size}">${earned} <span class="full">/ ${full}</span></span>`;
+};
+
+App.renderGrades = function () {
+  const g = App.state.teacher.grades;
+  if (!g.exam) return `<p style="font-size:14px;opacity:.6;">加载中…</p>`;
+
+  const filtered = g.query.trim()
+    ? g.list.filter(x => x.studentName.toLowerCase().includes(g.query.trim().toLowerCase()))
+    : g.list;
+
+  const rowsHtml = filtered.length === 0
+    ? (g.list.length === 0
+        ? `<p style="font-size:14px;opacity:.6;">还没有学生提交作答。</p>`
+        : `<p style="font-size:14px;opacity:.6;">没有找到名字包含"${App.esc(g.query)}"的学生。</p>`)
+    : filtered.map(row => App.renderGradeRow(row)).join('');
+
+  return `
+    <button class="ep-link-btn" style="margin-bottom:16px;" onclick="App.state.teacher.view='list';App.render();">← 返回列表</button>
+    <h2 class="ep-serif" style="font-size:22px;font-weight:700;margin:0 0 4px;">${App.esc(g.exam.title)}</h2>
+    <p style="font-size:14px;opacity:.6;margin:0 0 16px;">共 ${g.list.length} 份作答 · 满分 ${App.examFullScore(g.exam.questions)} 分</p>
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+      <div class="ep-card" style="display:flex;align-items:center;padding:6px 12px;flex:1;max-width:280px;">
+        <span style="opacity:.5;">🔍</span>
+        <input style="border:none;background:transparent;padding:0 0 0 8px;" placeholder="搜索学生姓名…"
+          value="${App.esc(g.query)}" oninput="App.gradesSetQuery(this.value)">
+      </div>
+      <button class="ep-link-btn" onclick="App.loadGrades('${g.examId}')">⟳ 刷新</button>
+    </div>
+    ${rowsHtml}
+  `;
+};
+
+App.getRowState = function (id) {
+  const rs = App.state.teacher.grades.rowState;
+  if (!rs[id]) rs[id] = { open: false, edits: {}, saving: false, showSuccess: false, showDeleteConfirm: false, deleting: false, full: null };
+  return rs[id];
+};
+
+App.toggleGradeRow = async function (id) {
+  const st = App.getRowState(id);
+  if (st.open) { st.open = false; App.render(); return; }
+  if (!st.full) {
+    st.full = await App.api('submissions.php', { params: { action: 'get', id } });
+  }
+  const edits = {};
+  st.full.perQuestion.forEach(pq => { edits[pq.questionId] = { earned: pq.earned, comment: pq.comment ?? '' }; });
+  st.edits = edits;
+  st.open = true;
+  App.render();
+};
+
+App.renderGradeRow = function (row) {
+  const st = App.getRowState(row.id);
+  let inner = '';
+  if (st.open && st.full) {
+    const pqHtml = st.full.perQuestion.map((pq, idx) => {
+      const type = App.pqType(pq);
+      const style = App.pqStyle[type];
+      const hasComment = typeof pq.comment !== 'undefined';
+      const isTeacherComment = pq.commentSource === 'teacher';
+      const edit = st.edits[pq.questionId] || { earned: pq.earned, comment: pq.comment ?? '' };
+      return `
+        <div style="margin-bottom:12px;padding-bottom:12px;border-top:1px dashed #C9CFC0;padding-left:12px;border-left:3px solid ${style.border};padding-top:8px;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+            <span class="${style.tag}" style="font-size:12px;padding:4px 8px;border-radius:4px;display:inline-flex;align-items:center;gap:4px;">${style.icon} ${style.label}</span>
+            <div style="display:flex;align-items:center;gap:4px;font-size:14px;">
+              <input type="number" min="0" max="${pq.full}" style="width:56px;text-align:right;padding:4px;"
+                value="${edit.earned}"
+                onchange="App.gradeEditScore('${row.id}','${pq.questionId}',this.value,${pq.full})">
+              <span class="ep-mono" style="opacity:.6;">/ ${pq.full}</span>
+            </div>
+          </div>
+          <p style="font-size:14px;font-weight:500;margin:0 0 8px;">${idx + 1}. ${['meaning', 'pinyin', 'completion', 'synonym'].includes(pq.subtype) ? App.escWithUnderline(pq.label, pq.targetWord) : App.esc(pq.label)}${pq.subLabel ? ' — ' + App.esc(pq.subLabel) : ''}</p>
+          ${typeof pq.studentAnswer !== 'undefined' ? `
+            <div class="ep-ruled" style="border-radius:4px;padding:8px;margin-bottom:8px;font-size:14px;white-space:pre-wrap;">
+              <span class="ep-mono" style="font-size:12px;opacity:.5;">学生作答：</span>${App.esc(pq.studentAnswer)}
+            </div>` : ''}
+          ${hasComment ? `
+            <div>
+              <span class="ep-mono" style="font-size:12px;${isTeacherComment ? 'color:#2F6F4E;' : 'opacity:.5;'}">${isTeacherComment ? '人工评语：' : 'AI评语：'}</span>
+              <textarea rows="2" style="margin-top:4px;font-size:12px;" onchange="App.gradeEditComment('${row.id}','${pq.questionId}',this.value)">${App.esc(edit.comment)}</textarea>
+            </div>` : ''}
+          ${pq.correctness === false && pq.correctText ? `<p style="font-size:12px;color:#B23A2E;margin-top:4px;">正确答案：${App.esc(pq.correctText)}</p>` : ''}
+        </div>
+      `;
+    }).join('');
+
+    inner = `
+      <div class="ep-divider" style="margin-top:12px;padding-top:12px;">
+        ${pqHtml}
+        <button class="ep-btn ep-btn-seal" ${st.saving ? 'disabled' : ''} onclick="App.saveGradeOverride('${row.id}')">✎ 保存调整</button>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="ep-card" style="padding:16px;margin-bottom:12px;position:relative;">
+      ${st.saving ? App.overlayHtml('正在保存调整…') : ''}
+      ${st.showSuccess ? App.modalHtml(`
+        <div class="ep-seal" style="width:64px;height:64px;margin:0 auto 12px;">✓</div>
+        <p class="ep-serif" style="font-weight:700;font-size:18px;margin:0 0 4px;">保存成功</p>
+        <p style="font-size:12px;opacity:.6;margin:0 0 12px;">分数与评语的调整已经记录</p>
+        <button class="ep-btn ep-btn-primary" onclick="App.getRowState('${row.id}').showSuccess=false;App.render();">好的</button>
+      `, `App.getRowState('${row.id}').showSuccess=false;App.render();`) : ''}
+      ${st.showDeleteConfirm ? App.modalHtml(`
+        <p class="ep-serif" style="font-weight:700;font-size:18px;margin:0 0 8px;">删除这份答卷？</p>
+        <p style="font-size:14px;opacity:.6;margin:0 0 20px;">${App.esc(row.studentName)} 的这份作答记录将被永久删除，包括对应的回执ID，无法恢复。</p>
+        <div style="display:flex;gap:8px;justify-content:center;">
+          <button class="ep-btn" onclick="App.getRowState('${row.id}').showDeleteConfirm=false;App.render();">取消</button>
+          <button class="ep-btn ep-btn-seal" ${st.deleting ? 'disabled' : ''} onclick="App.deleteSubmission('${row.id}')">🗑 确认删除</button>
+        </div>
+      `, `App.getRowState('${row.id}').showDeleteConfirm=false;App.render();`) : ''}
+
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div style="cursor:pointer;flex:1;" onclick="App.toggleGradeRow('${row.id}')">
+          <span style="font-weight:600;">${App.esc(row.studentName)}</span>
+          <span style="font-size:12px;opacity:.6;margin-left:8px;">${App.fmtDate(row.submittedAt)}</span>
+          <span class="ep-tag ep-mono" style="font-size:12px;padding:2px 8px;border-radius:4px;margin-left:8px;">ID: ${row.id}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          ${App.scoreBadgeHtml(row.totalEarned, row.totalFull)}
+          <button class="ep-btn" style="padding:4px 8px;color:#B23A2E;" title="删除这份答卷"
+            onclick="App.getRowState('${row.id}').showDeleteConfirm=true;App.render();">🗑</button>
+        </div>
+      </div>
+      ${inner}
+    </div>
+  `;
+};
+
+App.overlayHtml = function (text) {
+  return `
+    <div class="ep-modal-overlay" style="background:rgba(250,250,248,.75);">
+      <div class="ep-card" style="padding:40px;text-align:center;">
+        <div style="font-size:32px;margin-bottom:12px;">⏳</div>
+        <p class="ep-serif" style="font-weight:700;margin:0;">${App.esc(text)}</p>
+      </div>
+    </div>
+  `;
+};
+App.modalHtml = function (inner, onOverlayClick) {
+  return `
+    <div class="ep-modal-overlay" style="background:rgba(27,42,74,.45);" onclick="if(event.target===this){${onOverlayClick}}">
+      <div class="ep-card" style="padding:32px;max-width:360px;text-align:center;" onclick="event.stopPropagation()">
+        ${inner}
+      </div>
+    </div>
+  `;
+};
+
+App.gradeEditScore = function (rowId, qId, value, full) {
+  const clamped = value === '' ? '' : Math.max(0, Math.min(full, Number(value)));
+  App.getRowState(rowId).edits[qId] = { ...App.getRowState(rowId).edits[qId], earned: clamped };
+};
+App.gradeEditComment = function (rowId, qId, value) {
+  App.getRowState(rowId).edits[qId] = { ...App.getRowState(rowId).edits[qId], comment: value };
+};
+
+App.saveGradeOverride = async function (rowId) {
+  const st = App.getRowState(rowId);
+  st.saving = true;
+  App.render();
+
+  const perQuestion = st.full.perQuestion.map(pq => {
+    const e = st.edits[pq.questionId] || {};
+    const rawEarned = Number(e.earned);
+    const newEarned = Math.max(0, Math.min(pq.full, Number.isFinite(rawEarned) ? rawEarned : pq.earned));
+    const hasComment = typeof pq.comment !== 'undefined';
+    const newComment = hasComment ? (e.comment ?? pq.comment) : pq.comment;
+    const commentChanged = hasComment && newComment !== (pq.comment || '');
+    return { ...pq, earned: newEarned, comment: newComment, commentSource: commentChanged ? 'teacher' : pq.commentSource };
+  });
+  const totalEarned = perQuestion.reduce((a, b) => a + b.earned, 0);
+
+  const updated = await App.api('submissions.php', {
+    method: 'POST', params: { action: 'update', id: rowId },
+    body: { perQuestion, totalEarned }
+  });
+
+  st.full = updated;
+  const listItem = App.state.teacher.grades.list.find(r => r.id === rowId);
+  if (listItem) { listItem.totalEarned = updated.totalEarned; }
+  st.saving = false;
+  st.showSuccess = true;
+  App.render();
+};
+
+App.deleteSubmission = async function (rowId) {
+  const st = App.getRowState(rowId);
+  st.deleting = true;
+  App.render();
+  await App.api('submissions.php', { method: 'POST', params: { action: 'delete', id: rowId } });
+  st.deleting = false;
+  st.showDeleteConfirm = false;
+  await App.loadGrades(App.state.teacher.grades.examId);
+};
+
+/* ============================== 学生：主流程 ============================== */
+
+App.loadStudentExams = async function () {
+  try {
+    App.state.student.exams = await App.api('exams.php', { params: { action: 'list' } });
+  } catch { App.state.student.exams = []; }
+};
+
+App.renderStudentHome = function () {
+  const s = App.state.student;
+  if (s.step === 'lookup') return App.renderLookup();
+  if (s.step === 'name') return App.renderNameStep();
+  if (s.step === 'pick') return App.renderPickStep();
+  if (s.step === 'taking') return App.renderTaking();
+  if (s.step === 'result') return App.renderResult();
+  return '';
+};
+
+App.renderNameStep = function () {
+  const s = App.state.student;
+  return `
+    <div class="ep-card" style="padding:32px;max-width:420px;">
+      <button class="ep-link-btn" style="margin-bottom:16px;" onclick="App.state.role=null;App.render();">← 返回</button>
+      <h2 class="ep-serif" style="font-size:22px;font-weight:700;margin:0 0 16px;">请输入姓名</h2>
+      <input placeholder="你的姓名" style="margin-bottom:16px;" value="${App.esc(s.name)}"
+        onchange="App.state.student.name=this.value">
+      <button class="ep-btn ep-btn-primary" onclick="App.goPickStep()">开始 →</button>
+      <div class="ep-divider" style="margin-top:16px;padding-top:16px;">
+        <button class="ep-link-btn" onclick="App.state.student.step='lookup';App.render();">🔑 已经考过？用回执ID查看之前的结果</button>
+      </div>
+    </div>
+  `;
+};
+
+App.goPickStep = function () {
+  const nameInput = document.querySelector('#root input');
+  if (nameInput) App.state.student.name = nameInput.value;
+  if (!App.state.student.name.trim()) return;
+  App.state.student.step = 'pick';
+  App.loadStudentExams().then(App.render);
+  App.render();
+};
+
+App.renderLookup = function () {
+  const s = App.state.student;
+  return `
+    <div class="ep-card" style="padding:32px;max-width:420px;">
+      <button class="ep-link-btn" style="margin-bottom:16px;" onclick="App.state.student.step='name';App.state.student.lookupError='';App.render();">← 返回</button>
+      <h2 class="ep-serif" style="font-size:22px;font-weight:700;margin:0 0 8px;">查看已提交的答卷</h2>
+      <p style="font-size:14px;opacity:.6;margin:0 0 16px;">粘贴交卷后拿到的回执ID，直接查看当时的作答与得分。</p>
+      <input class="ep-mono" style="margin-bottom:12px;letter-spacing:2px;" placeholder="例如：A1B2C3"
+        value="${App.esc(s.lookupId)}" oninput="App.state.student.lookupId=this.value;App.state.student.lookupError='';">
+      ${s.lookupError ? `<p style="font-size:13px;color:#B23A2E;margin:0 0 12px;">${App.esc(s.lookupError)}</p>` : ''}
+      <button class="ep-btn ep-btn-primary" ${s.lookupLoading ? 'disabled' : ''} onclick="App.doLookup()">🔍 查看</button>
+    </div>
+  `;
+};
+
+App.doLookup = async function () {
+  const s = App.state.student;
+  const val = document.querySelector('#root input.ep-mono');
+  const id = val ? val.value.trim() : s.lookupId.trim();
+  if (!id) return;
+  s.lookupLoading = true;
+  App.render();
+  try {
+    const found = await App.api('submissions.php', { params: { action: 'get', id } });
+    s.result = found;
+    s.step = 'result';
+  } catch {
+    s.lookupError = '没有找到这个ID对应的答卷，请检查是否输入正确。';
+  }
+  s.lookupLoading = false;
+  App.render();
+};
+
+App.renderPickStep = function () {
+  const s = App.state.student;
+  const list = s.exams.length === 0
+    ? `<p style="font-size:14px;opacity:.6;">暂无可用试卷，请等待教师发布。</p>`
+    : s.exams.map(e => `
+        <div class="ep-card" style="padding:16px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;">
+          <div>
+            <p style="font-weight:600;margin:0;">${App.esc(e.title)}</p>
+            <p class="ep-mono" style="font-size:12px;opacity:.6;margin:2px 0 0;">${e.questionCount} 题</p>
+          </div>
+          <button class="ep-btn ep-btn-primary" onclick="App.startExam('${e.id}')">开始作答 →</button>
+        </div>
+      `).join('');
+  return `
+    <button class="ep-link-btn" style="margin-bottom:16px;" onclick="App.state.student.step='name';App.render();">← 返回</button>
+    <h2 class="ep-serif" style="font-size:22px;font-weight:700;margin:0 0 16px;">选择试卷</h2>
+    ${list}
+  `;
+};
+
+App.startExam = async function (examId) {
+  const exam = await App.api('exams.php', { params: { action: 'get', id: examId } });
+  App.state.student.exam = exam;
+  App.state.student.answers = {};
+  App.state.student.step = 'taking';
+  App.render();
+};
+
+/* ---------------------------- 学生：答题页 ---------------------------- */
+
+App.setAnswer = function (qId, val) { App.state.student.answers[qId] = val; };
+App.setSubAnswer = function (qId, subId, val) {
+  const a = App.state.student.answers;
+  if (!a[qId]) a[qId] = {};
+  a[qId][subId] = val;
+};
+
+App.renderTaking = function () {
+  const s = App.state.student;
+  const exam = s.exam;
+
+  if (s.grading) {
+    return `
+      <div class="ep-card" style="padding:40px;text-align:center;">
+        <div style="font-size:32px;margin-bottom:12px;color:#B23A2E;">⏳</div>
+        <p class="ep-serif" style="font-weight:700;margin:0 0 4px;">AI 阅卷中</p>
+        <p style="font-size:14px;opacity:.6;margin:0;">${App.esc(s.progressText || '正在批改…')}</p>
+      </div>
+    `;
+  }
+
+  const totalFull = App.examFullScore(exam.questions);
+  const mcQs = exam.questions.filter(q => q.type === 'mc');
+  const shortQs = exam.questions.filter(q => q.type === 'short');
+  const readingQs = exam.questions.filter(q => q.type === 'reading');
+
+  const mcHtml = mcQs.length ? `
+    <div style="margin-bottom:32px;">
+      <h3 class="ep-section-heading">一、选择题</h3>
+      ${mcQs.map((q, i) => `
+        <div class="ep-card" style="padding:16px;margin-bottom:12px;">
+          <p style="margin:0 0 12px;"><span class="ep-mono" style="opacity:.6;margin-right:8px;">${i + 1}.</span>${['meaning', 'pinyin', 'completion', 'synonym'].includes(q.subtype) ? App.escWithUnderline(q.text, q.targetWord) : App.esc(q.text)}</p>
+          ${q.options.map((opt, oi) => `
+            <label class="ep-radio">
+              <input type="radio" name="mc-${q.id}" ${s.answers[q.id] === oi ? 'checked' : ''} onchange="App.setAnswer('${q.id}',${oi})">
+              <span>${String.fromCharCode(65 + oi)}. ${q.subtype === 'usage' ? App.escWithUnderline(opt, q.targetWord) : App.esc(opt)}</span>
+            </label>
+          `).join('')}
+        </div>
+      `).join('')}
+    </div>
+  ` : '';
+
+  const shortHtml = shortQs.length ? `
+    <div style="margin-bottom:32px;">
+      <h3 class="ep-section-heading">二、作答题</h3>
+      ${shortQs.map((q, i) => `
+        <div class="ep-card" style="padding:16px;margin-bottom:12px;">
+          <p style="margin:0 0 12px;"><span class="ep-mono" style="opacity:.6;margin-right:8px;">${i + 1}.</span>${App.esc(q.text)}</p>
+          <textarea rows="4" placeholder="请在此作答…" onchange="App.setAnswer('${q.id}',this.value)">${App.esc(s.answers[q.id] || '')}</textarea>
+        </div>
+      `).join('')}
+    </div>
+  ` : '';
+
+  const readingHtml = readingQs.length ? `
+    <div style="margin-bottom:32px;">
+      <h3 class="ep-section-heading">三、阅读理解</h3>
+      ${readingQs.map((q, i) => `
+        <div class="ep-card" style="padding:16px;margin-bottom:12px;">
+          <p class="ep-mono" style="font-size:12px;opacity:.5;margin:0 0 8px;">阅读材料 ${i + 1}</p>
+          <div class="ep-ruled" style="padding:12px;border-radius:4px;margin-bottom:16px;font-size:14px;white-space:pre-wrap;">${App.esc(q.passage)}</div>
+          ${q.subQuestions.map((sq, si) => `
+            <div style="margin-bottom:12px;">
+              <p style="margin:0 0 8px;"><span class="ep-mono" style="opacity:.6;margin-right:8px;">${si + 1}.</span>${App.esc(sq.text)}</p>
+              ${sq.type === 'mc' ? sq.options.map((opt, oi) => `
+                <label class="ep-radio">
+                  <input type="radio" name="rsq-${sq.id}" ${(s.answers[q.id] || {})[sq.id] === oi ? 'checked' : ''} onchange="App.setSubAnswer('${q.id}','${sq.id}',${oi})">
+                  <span>${String.fromCharCode(65 + oi)}. ${App.esc(opt)}</span>
+                </label>
+              `).join('') : `
+                <textarea rows="3" placeholder="请在此作答…"
+                  onchange="App.setSubAnswer('${q.id}','${sq.id}',this.value)">${App.esc((s.answers[q.id] || {})[sq.id] || '')}</textarea>
+              `}
+            </div>
+          `).join('')}
+        </div>
+      `).join('')}
+    </div>
+  ` : '';
+
+  return `
+    <button class="ep-link-btn" style="margin-bottom:16px;" onclick="App.state.student.showBackConfirm=true;App.render();">← 返回</button>
+    ${s.showBackConfirm ? App.modalHtml(`
+      <p class="ep-serif" style="font-weight:700;font-size:18px;margin:0 0 8px;">确定要返回吗？</p>
+      <p style="font-size:14px;opacity:.6;margin:0 0 20px;">当前已填写的作答不会被保存。</p>
+      <div style="display:flex;gap:8px;justify-content:center;">
+        <button class="ep-btn" onclick="App.state.student.showBackConfirm=false;App.render();">取消</button>
+        <button class="ep-btn ep-btn-seal" onclick="App.state.student.exam=null;App.state.student.step='pick';App.state.student.showBackConfirm=false;App.render();">确定返回</button>
+      </div>
+    `, `App.state.student.showBackConfirm=false;App.render();`) : ''}
+    <h2 class="ep-serif" style="font-size:22px;font-weight:700;margin:0 0 4px;">${App.esc(exam.title)}</h2>
+    <p class="ep-mono" style="font-size:14px;opacity:.6;margin:0 0 24px;">应试人：${App.esc(s.name)} · 满分 ${totalFull} 分</p>
+    ${mcHtml}${shortHtml}${readingHtml}
+    <button class="ep-btn ep-btn-seal" onclick="App.submitExam()">📨 交卷</button>
+  `;
+};
+
+App.submitExam = async function () {
+  const s = App.state.student;
+  const exam = s.exam;
+  s.grading = true;
+  App.render();
+
+  const perQuestion = [];
+  for (const q of exam.questions) {
+    if (q.type === 'mc') {
+      const chosen = s.answers[q.id];
+      const correct = chosen === q.correctIndex;
+      perQuestion.push({
+        questionId: q.id, label: q.text || '选择题', earned: correct ? q.fullScore : 0, full: q.fullScore,
+        correctness: correct, correctText: q.options[q.correctIndex],
+        studentAnswer: typeof chosen === 'number' ? q.options[chosen] : '（未作答）',
+        subtype: q.subtype || 'basic', targetWord: q.targetWord || ''
+      });
+    } else if (q.type === 'short') {
+      const studentAnswer = (s.answers[q.id] || '').trim();
+      if (!studentAnswer) {
+        perQuestion.push({ questionId: q.id, label: q.text || '作答题', earned: 0, full: q.fullScore, comment: '未作答，系统直接判0分，未调用AI评分。', commentSource: 'ai', studentAnswer: '（未作答）' });
+      } else {
+        s.progressText = `AI正在评阅：${(q.text || '作答题').slice(0, 16)}…`;
+        App.render();
+        const r = await App.api('grade.php', { method: 'POST', body: { question: q.text, rubric: q.rubric, fullScore: q.fullScore, studentAnswer } });
+        perQuestion.push({ questionId: q.id, label: q.text || '作答题', earned: r.score, full: q.fullScore, comment: r.comment, commentSource: 'ai', studentAnswer });
+      }
+    } else if (q.type === 'reading') {
+      for (const sub of q.subQuestions) {
+        if (sub.type === 'mc') {
+          const chosen = (s.answers[q.id] || {})[sub.id];
+          const correct = chosen === sub.correctIndex;
+          perQuestion.push({
+            questionId: `${q.id}:${sub.id}`, label: '阅读理解', subLabel: sub.text || '', earned: correct ? sub.fullScore : 0, full: sub.fullScore,
+            correctness: correct, correctText: sub.options[sub.correctIndex],
+            studentAnswer: typeof chosen === 'number' ? sub.options[chosen] : '（未作答）'
+          });
+          continue;
+        }
+        const studentAnswer = ((s.answers[q.id] || {})[sub.id] || '').trim();
+        if (!studentAnswer) {
+          perQuestion.push({
+            questionId: `${q.id}:${sub.id}`, label: '阅读理解', subLabel: sub.text || '', earned: 0, full: sub.fullScore,
+            comment: '未作答，系统直接判0分，未调用AI评分。', commentSource: 'ai', studentAnswer: '（未作答）'
+          });
+        } else {
+          s.progressText = `AI正在评阅：阅读理解 - ${(sub.text || '小题').slice(0, 12)}…`;
+          App.render();
+          const r = await App.api('grade.php', { method: 'POST', body: { question: sub.text, rubric: sub.rubric, fullScore: sub.fullScore, studentAnswer, passage: q.passage } });
+          perQuestion.push({
+            questionId: `${q.id}:${sub.id}`, label: '阅读理解', subLabel: sub.text || '', earned: r.score, full: sub.fullScore,
+            comment: r.comment, commentSource: 'ai', studentAnswer
+          });
+        }
+      }
+    }
+  }
+
+  const totalEarned = perQuestion.reduce((a, b) => a + b.earned, 0);
+  const totalFull = App.examFullScore(exam.questions);
+
+  const submission = await App.api('submissions.php', {
+    method: 'POST', params: { action: 'create' },
+    body: { examId: exam.id, studentName: s.name.trim(), perQuestion, totalEarned, totalFull }
+  });
+
+  s.grading = false;
+  s.result = submission;
+  s.step = 'result';
+  App.render();
+};
+
+/* ---------------------------- 学生：结果页 ---------------------------- */
+
+App.renderResult = function () {
+  const r = App.state.student.result;
+  const pqHtml = r.perQuestion.map((pq, i) => `
+    <div class="ep-card" style="padding:16px;margin-bottom:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px;">
+        <p style="font-size:14px;font-weight:500;margin:0;display:flex;align-items:center;gap:4px;">
+          ${pq.correctness === true ? '<span style="color:#2F6F4E;">✓</span>' : ''}
+          ${pq.correctness === false ? '<span style="color:#B23A2E;">✕</span>' : ''}
+          ${i + 1}. ${['meaning', 'pinyin', 'completion', 'synonym'].includes(pq.subtype) ? App.escWithUnderline(pq.subLabel ? pq.subLabel : pq.label, pq.targetWord) : App.esc(pq.subLabel ? pq.subLabel : pq.label)}
+        </p>
+        ${App.scoreBadgeHtml(pq.earned, pq.full)}
+      </div>
+      ${typeof pq.studentAnswer !== 'undefined' ? `
+        <div class="ep-ruled" style="border-radius:4px;padding:8px;margin:8px 0;font-size:14px;white-space:pre-wrap;">
+          <span class="ep-mono" style="font-size:12px;opacity:.5;">你的作答：</span>${App.esc(pq.studentAnswer)}
+        </div>` : ''}
+      ${pq.correctness === false ? `<p style="font-size:12px;color:#B23A2E;margin:4px 0;">正确答案：${App.esc(pq.correctText)}</p>` : ''}
+      ${pq.comment ? `
+        <p style="font-size:12px;opacity:.7;margin:4px 0 0;">
+          <span class="ep-mono" style="${pq.commentSource === 'teacher' ? 'color:#2F6F4E;' : ''}">${pq.commentSource === 'teacher' ? '人工评语：' : 'AI评语：'}</span>
+          ${App.esc(pq.comment)}
+        </p>` : ''}
+    </div>
+  `).join('');
+
+  return `
+    <div style="display:flex;align-items:center;gap:24px;margin-bottom:16px;">
+      <div class="ep-seal" style="width:96px;height:96px;">
+        <span class="ep-serif" style="font-weight:900;font-size:22px;">已阅</span>
+        <span>✦</span>
+      </div>
+      <div>
+        <p class="ep-serif" style="font-size:30px;font-weight:900;margin:0;">${r.totalEarned} <span style="font-size:18px;opacity:.5;">/ ${r.totalFull}</span></p>
+        <p style="font-size:14px;opacity:.6;margin:4px 0 0;">AI 已完成批改，教师可能会复核部分题目</p>
+      </div>
+    </div>
+    <div class="ep-card" style="padding:12px;margin-bottom:24px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="opacity:.5;">🔑</span>
+          <span style="font-size:12px;opacity:.6;">回执ID（保存好，下次可凭此查看结果）</span>
+          <span id="receiptIdText" class="ep-mono" style="font-weight:700;letter-spacing:2px;">${App.esc(r.id)}</span>
+        </div>
+        <button class="ep-btn" id="copyIdBtn" onclick="App.copyReceiptId('${r.id}')">📋 复制ID</button>
+      </div>
+      <p id="copyFailMsg" style="font-size:12px;color:#B23A2E;margin:8px 0 0;display:none;">
+        自动复制失败——已经帮你选中上面的ID，请直接按 Ctrl+C（Mac上是 Cmd+C）手动复制。
+      </p>
+    </div>
+    ${pqHtml}
+    <button class="ep-btn" onclick="App.state.student.step='pick';App.state.student.exam=null;App.state.student.result=null;App.render();">← 返回考试列表</button>
+  `;
+};
+
+App.copyReceiptId = async function (id) {
+  let success = false;
+  try {
+    await navigator.clipboard.writeText(id);
+    success = true;
+  } catch {}
+  if (!success) {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = id;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      success = document.execCommand('copy');
+      document.body.removeChild(ta);
+    } catch {}
+  }
+  const btn = document.getElementById('copyIdBtn');
+  const failMsg = document.getElementById('copyFailMsg');
+  if (success) {
+    if (btn) btn.innerHTML = '☑️已复制';
+    if (failMsg) failMsg.style.display = 'none';
+    setTimeout(() => { if (btn) btn.innerHTML = '📋 复制ID'; }, 1800);
+  } else {
+    if (failMsg) failMsg.style.display = 'block';
+    const span = document.getElementById('receiptIdText');
+    if (span) {
+      const range = document.createRange();
+      range.selectNodeContents(span);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+  }
+};
+
+/* --------------------------------- 启动 --------------------------------- */
+
+document.addEventListener('DOMContentLoaded', () => {
+  App.render();
+});
+
+/* ===================== 后端：Firebase Firestore（数据） + Google Gemini（AI） ===================== */
+(function () {
+  const CFG = window.APP_CONFIG || {};
+  const TEACHER_PASSWORD = CFG.TEACHER_PASSWORD || 'huacheng2026';
+
+  // ---------- Firebase / Firestore 初始化 ----------
+  let db = null;
+  try {
+    if (CFG.firebaseConfig && window.firebase) {
+      firebase.initializeApp(CFG.firebaseConfig);
+      db = firebase.firestore();
+    }
+  } catch (e) { console.error('Firebase init failed', e); db = null; }
+  document.addEventListener('DOMContentLoaded', () => {
+    const lbl = document.getElementById('storageLabel');
+    if (lbl && !db) lbl.textContent = 'browser memory (Firestore not configured)';
+  });
+
+  // 去掉编辑器里的临时字段（_generating 等），并避免 undefined 写进 Firestore
+  function clean(obj) {
+    return JSON.parse(JSON.stringify(obj, (k, v) => (k && k.charAt(0) === '_') ? undefined : v));
+  }
+  let mockLoggedIn = false;
+  const mockExams = [];
+  const mockSubmissions = [];
+
+  function genId(len) {
+    len = len || 6;
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let id = '';
+    for (let i = 0; i < len; i++) id += chars[Math.floor(Math.random() * chars.length)];
+    return id;
+  }
+  function examFullScore(questions) {
+    let total = 0;
+    questions.forEach(q => {
+      if (q.type === 'reading') q.subQuestions.forEach(s => total += s.fullScore);
+      else total += q.fullScore;
+    });
+    return total;
+  }
+  function delay(ms) { return new Promise(res => setTimeout(res, ms)); }
+
+  const DIFF_LABELS = { easy: '简单', normal: '普通', hard: '困难' };
+  const CATEGORY_LABELS = {
+    unlimited: '不限（任何合理的阅读理解问题都可以）',
+    comprehension: '内容理解题（针对文章中某个具体情节或信息，考查是否读懂字面内容）',
+    wording: '词句理解题（要求解释文中某个词语或句子在上下文中的含义）',
+    causal: '因果题（要求说明文中某件事发生的原因，或某个行为导致的结果）',
+    summary: '概括题（要求用简洁的语言概括一段内容、一个事件或全文大意）',
+    character: '人物性格题（要求分析文中人物的性格特点，并结合文章内容说明依据）',
+    inference: '推断题（文章没有直接写明，但要求根据文中线索合理推断出的信息）',
+    theme: '主旨/寓意题（要求概括文章的中心思想，或这篇文章想传达的道理/寓意）',
+    evaluation: '评价/证据题（要求对文中人物的行为或观点作出评价，并引用文章内容作为依据）',
+    compare: '比较题（要求比较文中两个人物、事物或观点的异同）'
+  };
+
+  // ---------- Google Gemini 调用 ----------
+  const GEMINI_MODELS = [CFG.GEMINI_MODEL, 'gemini-3.6-flash', 'gemini-flash-latest', 'gemini-2.5-flash']
+    .filter((m, i, arr) => m && arr.indexOf(m) === i);
+  let workingModel = null;
+
+  async function callGemini(system, userContent, maxTokens) {
+    const key = CFG.GEMINI_API_KEY;
+    if (!key || key.indexOf('PASTE_') === 0) throw new Error('尚未设置 Gemini API Key');
+    const models = workingModel ? [workingModel] : GEMINI_MODELS;
+    let lastErr = null;
+    for (const model of models) {
+      let res, data;
+      try {
+        res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: system }] },
+            contents: [{ role: 'user', parts: [{ text: userContent }] }],
+            // 新版 Gemini 会先"思考"再输出，思考也占 token，所以给足上限
+            generationConfig: { maxOutputTokens: Math.max(8192, maxTokens || 0) }
+          })
+        });
+        data = await res.json().catch(() => null);
+      } catch (e) { lastErr = e; continue; }
+      if (!res.ok) {
+        lastErr = new Error((data && data.error && data.error.message) || ('HTTP ' + res.status));
+        if ([400, 404, 429, 500, 503].includes(res.status) && !workingModel) continue;
+        throw lastErr;
+      }
+      const parts = (((data.candidates || [])[0] || {}).content || {}).parts || [];
+      const text = parts.filter(p => p.text && !p.thought).map(p => p.text).join('');
+      if (!text) { lastErr = new Error('Gemini 没有返回文本'); continue; }
+      workingModel = model;
+      return text;
+    }
+    throw lastErr || new Error('Gemini 调用失败');
+  }
+
+  function field(raw, label, nextLabels) {
+    nextLabels = nextLabels || [];
+    const idx = raw.indexOf(label);
+    if (idx === -1) return '';
+    let start = idx + label.length;
+    while (start < raw.length) {
+      const ch = raw[start];
+      if (ch === '：' || ch === ':' || ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r') start++;
+      else break;
+    }
+    let end = raw.length;
+    nextLabels.forEach(nl => {
+      const nlIdx = raw.indexOf(nl, start);
+      if (nlIdx !== -1 && nlIdx < end) end = nlIdx;
+    });
+    return raw.slice(start, end).trim();
+  }
+  function forceAvoid(options, correctIndex, avoidLetter) {
+    const LETTERS = ['A', 'B', 'C', 'D'];
+    if (avoidLetter && LETTERS[correctIndex] === avoidLetter) {
+      const alts = [0, 1, 2, 3].filter(x => x !== correctIndex);
+      const newIndex = alts[Math.floor(Math.random() * alts.length)];
+      const tmp = options[newIndex];
+      options[newIndex] = options[correctIndex];
+      options[correctIndex] = tmp;
+      correctIndex = newIndex;
+    }
+    return { options, correctIndex };
+  }
+  function pickLetter(raw) {
+    const idx = raw.indexOf('正确答案');
+    if (idx === -1) return 'A';
+    const after = raw.slice(idx + 4);
+    const m = after.match(/[ABCD]/);
+    return m ? m[0] : 'A';
+  }
+
+  async function firestoreApi(path, action, params, body) {
+    const examsCol = db.collection('exams');
+    const subsCol = db.collection('submissions');
+
+    if (path === 'exams.php') {
+      if (action === 'list') {
+        const snap = await examsCol.orderBy('createdAt', 'desc').get();
+        return snap.docs.map(d => {
+          const e = d.data();
+          const questions = JSON.parse(e.questionsJson || '[]');
+          return {
+            id: d.id, title: e.title, grade: e.grade || '', difficulty: e.difficulty || '', createdAt: e.createdAt,
+            questionCount: questions.length, fullScore: examFullScore(questions)
+          };
+        });
+      }
+      if (action === 'get') {
+        const d = await examsCol.doc(params.id).get();
+        if (!d.exists) throw new Error('试卷不存在');
+        const e = d.data();
+        return { id: d.id, title: e.title, grade: e.grade || '', difficulty: e.difficulty || '', questions: JSON.parse(e.questionsJson || '[]'), createdAt: e.createdAt, updatedAt: e.updatedAt || null };
+      }
+      if (action === 'create') {
+        const id = genId();
+        await examsCol.doc(id).set({
+          title: body.title, grade: body.grade || '', difficulty: body.difficulty || '',
+          questionsJson: JSON.stringify(clean(body.questions)), createdAt: Date.now()
+        });
+        return { id: id };
+      }
+      if (action === 'update') {
+        await examsCol.doc(params.id).update({
+          title: body.title, grade: body.grade || '', difficulty: body.difficulty || '',
+          questionsJson: JSON.stringify(clean(body.questions)), updatedAt: Date.now()
+        });
+        return { ok: true };
+      }
+      if (action === 'delete') {
+        const subs = await subsCol.where('examId', '==', params.id).get();
+        const batch = db.batch();
+        subs.docs.forEach(d => batch.delete(d.ref));
+        batch.delete(examsCol.doc(params.id));
+        await batch.commit();
+        return { ok: true };
+      }
+    }
+
+    if (path === 'submissions.php') {
+      const toSub = d => {
+        const s = d.data();
+        return {
+          id: d.id, examId: s.examId, studentName: s.studentName,
+          perQuestion: JSON.parse(s.perQuestionJson || '[]'),
+          totalEarned: s.totalEarned, totalFull: s.totalFull, submittedAt: s.submittedAt
+        };
+      };
+      if (action === 'list') {
+        // 不用 orderBy，避免需要建复合索引；在前端排序
+        const snap = await subsCol.where('examId', '==', params.exam_id).get();
+        return snap.docs.map(toSub)
+          .map(s => ({ id: s.id, studentName: s.studentName, totalEarned: s.totalEarned, totalFull: s.totalFull, submittedAt: s.submittedAt }))
+          .sort((a, b) => b.submittedAt - a.submittedAt);
+      }
+      if (action === 'get') {
+        const d = await subsCol.doc((params.id || '').trim().toUpperCase()).get();
+        if (!d.exists) throw new Error('没有找到这份答卷，请检查ID是否正确。');
+        return toSub(d);
+      }
+      if (action === 'create') {
+        const id = genId();
+        const sub = {
+          examId: body.examId, studentName: body.studentName,
+          perQuestionJson: JSON.stringify(clean(body.perQuestion)),
+          totalEarned: body.totalEarned, totalFull: body.totalFull, submittedAt: Date.now()
+        };
+        await subsCol.doc(id).set(sub);
+        return {
+          id: id, examId: sub.examId, studentName: sub.studentName, perQuestion: clean(body.perQuestion),
+          totalEarned: sub.totalEarned, totalFull: sub.totalFull, submittedAt: sub.submittedAt
+        };
+      }
+      if (action === 'update') {
+        await subsCol.doc(params.id).update({
+          perQuestionJson: JSON.stringify(clean(body.perQuestion)), totalEarned: body.totalEarned
+        });
+        return toSub(await subsCol.doc(params.id).get());
+      }
+      if (action === 'delete') {
+        await subsCol.doc(params.id).delete();
+        return { ok: true };
+      }
+    }
+    throw new Error('未识别的接口：' + path);
+  }
+
+  App.api = async function (path, opts) {
+    opts = opts || {};
+    const method = opts.method || 'GET';
+    const params = opts.params || {};
+    const body = opts.body || {};
+    const action = params.action;
+
+    // ---------- 登录（演示用密码） ----------
+    if (path === 'auth.php') {
+      await delay(200);
+      if (action === 'login') {
+        if (body.password === TEACHER_PASSWORD) { mockLoggedIn = true; return { ok: true }; }
+        throw new Error('密码不对，请再试一次。');
+      }
+      if (action === 'check') return { loggedIn: mockLoggedIn };
+      if (action === 'logout') { mockLoggedIn = false; return { ok: true }; }
+    }
+
+    // ---------- 试卷 / 答卷：配置了 Firebase 就存 Cloud Firestore ----------
+    if (db && (path === 'exams.php' || path === 'submissions.php')) {
+      return await firestoreApi(path, action, params, body);
+    }
+
+    if (path === 'exams.php') {
+      await delay(150);
+      if (action === 'list') {
+        return mockExams.map(e => ({
+          id: e.id, title: e.title, grade: e.grade || '', difficulty: e.difficulty || '', createdAt: e.createdAt,
+          questionCount: e.questions.length, fullScore: examFullScore(e.questions)
+        }));
+      }
+      if (action === 'get') {
+        const e = mockExams.find(x => x.id === params.id);
+        if (!e) throw new Error('试卷不存在');
+        return { id: e.id, title: e.title, grade: e.grade || '', difficulty: e.difficulty || '', questions: e.questions, createdAt: e.createdAt, updatedAt: e.updatedAt || null };
+      }
+      if (action === 'create') {
+        const id = genId();
+        mockExams.unshift({ id: id, title: body.title, grade: body.grade || '', difficulty: body.difficulty || '', questions: body.questions, createdAt: Date.now() });
+        return { id: id };
+      }
+      if (action === 'update') {
+        const e = mockExams.find(x => x.id === params.id);
+        if (e) { e.title = body.title; e.grade = body.grade || ''; e.difficulty = body.difficulty || ''; e.questions = body.questions; e.updatedAt = Date.now(); }
+        return { ok: true };
+      }
+      if (action === 'delete') {
+        const idx = mockExams.findIndex(x => x.id === params.id);
+        if (idx >= 0) mockExams.splice(idx, 1);
+        for (let i = mockSubmissions.length - 1; i >= 0; i--) {
+          if (mockSubmissions[i].examId === params.id) mockSubmissions.splice(i, 1);
+        }
+        return { ok: true };
+      }
+    }
+
+    if (path === 'submissions.php') {
+      await delay(150);
+      if (action === 'list') {
+        return mockSubmissions.filter(s => s.examId === params.exam_id)
+          .map(s => ({ id: s.id, studentName: s.studentName, totalEarned: s.totalEarned, totalFull: s.totalFull, submittedAt: s.submittedAt }))
+          .sort((a, b) => b.submittedAt - a.submittedAt);
+      }
+      if (action === 'get') {
+        const s = mockSubmissions.find(x => x.id === (params.id || '').toUpperCase());
+        if (!s) throw new Error('没有找到这份答卷，请检查ID是否正确。');
+        return s;
+      }
+      if (action === 'create') {
+        const id = genId();
+        const sub = {
+          id: id, examId: body.examId, studentName: body.studentName,
+          perQuestion: body.perQuestion, totalEarned: body.totalEarned, totalFull: body.totalFull,
+          submittedAt: Date.now()
+        };
+        mockSubmissions.unshift(sub);
+        return sub;
+      }
+      if (action === 'update') {
+        const s = mockSubmissions.find(x => x.id === params.id);
+        if (s) { s.perQuestion = body.perQuestion; s.totalEarned = body.totalEarned; }
+        return s;
+      }
+      if (action === 'delete') {
+        const idx = mockSubmissions.findIndex(x => x.id === params.id);
+        if (idx >= 0) mockSubmissions.splice(idx, 1);
+        return { ok: true };
+      }
+    }
+
+    // ---------- 以下全部是真实调用 Google Gemini ----------
+
+    if (path === 'grade.php') {
+      const studentAnswer = (body.studentAnswer || '').trim();
+      const fullScore = body.fullScore;
+      if (!studentAnswer) return { score: 0, comment: '未作答，系统直接判0分，未调用AI评分。' };
+      const sys = '你是一位严谨但善解人意的阅卷老师，正在批改一份正式考试。请严格依据"评分要点"给学生作答打分，允许合理的不同表达方式，但要点缺失应扣分。\n'
+        + '请严格按以下纯文本格式返回，不要使用JSON，不要使用Markdown代码块，不要有任何其他内容：\n'
+        + '分数：<0到' + fullScore + '之间的整数>\n评语：<20到60字的简短评语，指出得分点与不足，评语中可以正常使用任何标点符号（包括引号）>\n'
+        + '"分数：" 和 "评语：" 必须各自独占一行。';
+      const userContent = (body.passage ? ('【阅读材料】\n' + body.passage + '\n\n') : '')
+        + '【题目】\n' + body.question + '\n\n【评分要点/参考答案】\n' + body.rubric
+        + '\n\n【满分】' + fullScore + '分\n\n【学生作答】\n' + studentAnswer;
+      try {
+        const raw = await callGemini(sys, userContent, 500);
+        const scoreIdx = raw.indexOf('分数');
+        if (scoreIdx === -1) throw new Error('未能解析出分数');
+        const afterScore = raw.slice(scoreIdx + 2);
+        const scoreMatch = afterScore.match(/-?[0-9]+([.][0-9]+)?/);
+        if (!scoreMatch) throw new Error('未能解析出分数');
+        const score = Math.max(0, Math.min(fullScore, Math.round(Number(scoreMatch[0]))));
+        const comment = field(raw, '评语');
+        return { score, comment };
+      } catch (e) {
+        return { score: 0, comment: 'AI评分失败（' + e.message + '），建议教师人工复核此题。' };
+      }
+    }
+
+    if (path === 'generate_options.php') {
+      const gradeHint = body.grade ? ('题目难度请适合新加坡小学' + body.grade + '年级学生水平，整体难度定位为「' + (DIFF_LABELS[body.difficulty] || '普通') + '」。\n') : '';
+      const avoidHint = body.avoidLetter ? ('重要：这份试卷前面已经连续3道选择题的正确答案都是' + body.avoidLetter + '，这一题的正确答案请不要再是' + body.avoidLetter + '。\n') : '';
+      const sys = '你是一位经验丰富的出题老师。请根据给定的题干，生成4个选择题选项（其中恰好一个是正确答案，另外3个是有一定迷惑性但明确错误的干扰项）。\n'
+        + gradeHint + avoidHint
+        + '请严格按以下纯文本格式返回，不要有任何开场白、解释或Markdown符号：\n选项A：<内容>\n选项B：<内容>\n选项C：<内容>\n选项D：<内容>\n正确答案：<A、B、C或D>';
+      let raw = await callGemini(sys, '题干：' + body.question, 500);
+      raw = raw.split('**').join('').split('`').join('');
+      const labels = ['A', 'B', 'C', 'D'];
+      const options = labels.map((l, idx) => field(raw, '选项' + l, [idx < 3 ? ('选项' + labels[idx + 1]) : '正确答案']));
+      if (options.some(o => !o)) {
+        throw new Error('AI返回格式无法解析（选项不完整）。AI原始回复：「' + raw.slice(0, 200) + '」');
+      }
+      const correctIndex = labels.indexOf(pickLetter(raw));
+      return forceAvoid(options, correctIndex < 0 ? 0 : correctIndex, body.avoidLetter);
+    }
+
+    if (path === 'generate_rubric.php') {
+      const gradeHint = body.grade ? ('评分要点的深度请适合新加坡小学' + body.grade + '年级学生水平，整体难度定位为「' + (DIFF_LABELS[body.difficulty] || '普通') + '」。\n') : '';
+      const sys = '你是一位经验丰富的出题老师。请根据给定的题干，生成一份简洁的评分要点/参考答案。\n'
+        + gradeHint + '请严格按以下纯文本格式返回：\n评分要点：<50到120字，列出应该包含的关键得分点>';
+      const raw = await callGemini(sys, '题干：' + body.question, 400);
+      return { rubric: field(raw, '评分要点') };
+    }
+
+    if (path === 'generate_title.php') {
+      const gradeHint = body.grade ? ('适合新加坡小学' + body.grade + '年级学生，难度定位为「' + (DIFF_LABELS[body.difficulty] || '普通') + '」。\n') : '';
+      const sys = '你是一位经验丰富的语文老师。请根据给定的词汇，为一篇即将写的阅读理解短文想一个简洁贴切的标题。\n'
+        + gradeHint + '标题控制在2到8个字之间，只输出标题本身，不要引号或其他内容。';
+      const raw = await callGemini(sys, '词汇：' + (body.vocab || []).join('、'), 50);
+      let title = raw.trim();
+      ['《', '》', '"', "'", '“', '”', '「', '」'].forEach(ch => { title = title.split(ch).join(''); });
+      title = title.trim();
+      return { title };
+    }
+
+    if (path === 'generate_article.php') {
+      const gradeHint = body.grade ? ('文章的用词、句式和内容深度请适合新加坡小学' + body.grade + '年级学生阅读水平，整体难度定位为「' + (DIFF_LABELS[body.difficulty] || '普通') + '」。\n') : '';
+      const vocabList = (body.vocab || []).join('、');
+      if (body.title) {
+        const sys = '你是一位经验丰富的语文老师，正在为阅读理解题准备文章材料。请根据给定的标题和词汇，写一篇中文短文，字数控制在'
+          + body.wordCount + '字左右，必须自然用上每个词汇，有完整情节。\n' + gradeHint + '请直接输出文章正文，不要输出标题，不要有任何解释。';
+        const passage = await callGemini(sys, '标题：' + body.title + '\n必须用到的词汇：' + vocabList, 2000);
+        return { passage: passage.trim() };
+      }
+      const sys = '你是一位经验丰富的语文老师，正在为阅读理解题准备文章材料。请根据给定的词汇，先想一个简洁标题（2到8字），再写一篇中文短文，字数控制在'
+        + body.wordCount + '字左右，必须自然用上每个词汇。\n' + gradeHint + '请严格按格式返回：\n标题：<标题>\n正文：<正文>';
+      const raw = await callGemini(sys, '必须用到的词汇：' + vocabList, 2000);
+      return { passage: field(raw, '正文') || raw, title: field(raw, '标题', ['正文']) };
+    }
+
+    if (path === 'generate_subquestion.php') {
+      const categoryHint = CATEGORY_LABELS[body.category] || CATEGORY_LABELS.unlimited;
+      const gradeHint = body.grade ? ('题目难度请适合新加坡小学' + body.grade + '年级学生水平，整体难度定位为「' + (DIFF_LABELS[body.difficulty] || '普通') + '」。\n') : '';
+      const avoidHint = (body.type === 'mc' && body.avoidLetter) ? ('重要：前面已经连续3道选择题小题正确答案都是' + body.avoidLetter + '，这一题请不要再是' + body.avoidLetter + '。\n') : '';
+      if (body.type === 'mc') {
+        const sys = '你是一位经验丰富的语文老师，正在根据一篇阅读文章出一道选择题小题。题目类型要求：' + categoryHint + '\n'
+          + gradeHint + avoidHint + '请严格按格式返回：\n题目：<题干>\n选项A：<内容>\n选项B：<内容>\n选项C：<内容>\n选项D：<内容>\n正确答案：<A、B、C或D>';
+        const raw = await callGemini(sys, '文章内容：\n' + body.passage, 500);
+        const question = field(raw, '题目', ['选项A']);
+        const labels = ['A', 'B', 'C', 'D'];
+        const options = labels.map((l, idx) => field(raw, '选项' + l, [idx < 3 ? ('选项' + labels[idx + 1]) : '正确答案']));
+        if (!question || options.some(o => !o)) {
+          throw new Error('AI返回格式无法解析，请重试');
+        }
+        const correctIndex = labels.indexOf(pickLetter(raw));
+        const r = forceAvoid(options, correctIndex < 0 ? 0 : correctIndex, body.avoidLetter);
+        return { question, options: r.options, correctIndex: r.correctIndex };
+      }
+      const sys = '你是一位经验丰富的语文老师，正在根据一篇阅读文章出一道作答题小题。题目类型要求：' + categoryHint + '\n'
+        + gradeHint + '请严格按格式返回：\n题目：<题干>\n评分要点：<50到120字>';
+      const raw = await callGemini(sys, '文章内容：\n' + body.passage, 500);
+      const question = field(raw, '题目', ['评分要点']);
+      const rubric = field(raw, '评分要点');
+      if (!question || !rubric) {
+        throw new Error('AI返回格式无法解析，请重试');
+      }
+      return { question, rubric };
+    }
+
+    if (path === 'generate_word_question.php') {
+      const gradeHint = body.grade ? ('内容请适合新加坡小学' + body.grade + '年级学生水平，整体难度定位为「' + (DIFF_LABELS[body.difficulty] || '普通') + '」。\n') : '';
+      const avoidHint = body.avoidLetter ? ('重要：前面已经连续3道选择题正确答案都是' + body.avoidLetter + '，这一题请不要再是' + body.avoidLetter + '。\n') : '';
+      const labels = ['A', 'B', 'C', 'D'];
+
+      if (body.subtype === 'usage') {
+        const sys = '你是一位经验丰富的语文老师，正在出一道"词语运用"选择题。请针对给定的词语，写出4个完整的句子，每个句子都必须自然地包含这个词语。其中恰好1个句子里，这个词语的运用完全正确、贴切自然；另外3个句子里，这个词语的运用不恰当（比如语境不符、感情色彩不对、习惯搭配错误等），但整句话语法仍然通顺。\n'
+          + gradeHint + avoidHint
+          + '请严格按格式返回，不要有任何开场白、解释、Markdown符号或"好的"这类前缀，直接从"选项A："三个字开始输出：\n选项A：<完整句子1>\n选项B：<完整句子2>\n选项C：<完整句子3>\n选项D：<完整句子4>\n正确答案：<A、B、C或D>';
+        let raw = await callGemini(sys, '目标词汇：' + body.word, 700);
+        raw = raw.split('**').join('').split('`').join('')
+          .split(String.fromCharCode(10)).map(line => line.replace(/^#+/, '').trimStart()).join(String.fromCharCode(10));
+        const options = labels.map((l, idx) => field(raw, '选项' + l, [idx < 3 ? ('选项' + labels[idx + 1]) : '正确答案']));
+        if (options.some(o => !o)) {
+          throw new Error('AI返回格式无法解析（选项不完整）。AI原始回复：「' + raw.slice(0, 200) + '」');
+        }
+        const correctIndex = labels.indexOf(pickLetter(raw));
+        const r = forceAvoid(options, correctIndex < 0 ? 0 : correctIndex, body.avoidLetter);
+        return { options: r.options, correctIndex: r.correctIndex };
+      }
+
+      let sys;
+      if (body.subtype === 'wordchoice') {
+        sys = '你是一位经验丰富的语文老师，正在出一道"词语选择"选择题。请给定的词语造一个自然句子，把这个词语挖掉用____代替，再生成4个选项（一个是给定词语本身作为正确答案，另外3个是意思相近但不准确的干扰词）。\n'
+          + gradeHint + avoidHint
+          + '请严格按格式返回，不要有任何开场白、解释、Markdown符号或"好的"这类前缀，直接从"句子："三个字开始输出：\n句子：<带____的句子>\n选项A：<内容>\n选项B：<内容>\n选项C：<内容>\n选项D：<内容>\n正确答案：<A、B、C或D>';
+      } else if (body.subtype === 'meaning') {
+        sys = '你是一位经验丰富的语文老师，正在出一道"词义理解"选择题。请给定的词语造一个自然、完整包含这个词语的句子（词语不要加符号），再生成4个选项，分别是这个词语在句中的4种释义（一个正确，3个似是而非）。\n'
+          + gradeHint + avoidHint
+          + '请严格按格式返回，不要有任何开场白、解释、Markdown符号或"好的"这类前缀，直接从"句子："三个字开始输出：\n句子：<句子>\n选项A：<释义1>\n选项B：<释义2>\n选项C：<释义3>\n选项D：<释义4>\n正确答案：<A、B、C或D>';
+      } else if (body.subtype === 'pinyin') {
+        sys = '你是一位经验丰富的语文老师，正在出一道"汉语拼音"选择题。请给定的词语造一个自然、完整包含这个词语的句子（词语不要加符号），再生成4个选项，分别是这个词语在句中的4种拼音写法（一个是正确拼音，带声调符号；另外3个是声调、声母韵母或多音字读音错误的干扰项）。\n'
+          + gradeHint + avoidHint
+          + '请严格按格式返回，不要有任何开场白、解释、Markdown符号或"好的"这类前缀，直接从"句子："三个字开始输出：\n句子：<句子>\n选项A：<拼音1>\n选项B：<拼音2>\n选项C：<拼音3>\n选项D：<拼音4>\n正确答案：<A、B、C或D>';
+      } else if (body.subtype === 'completion') {
+        sys = '你是一位经验丰富的语文老师，正在出一道"完成句子"选择题。请给定的词语写一句话的前半句（必须用上这个词语），在意思未完的地方用____表示句子未完待续，再生成4个选项作为可能的后半句：其中一个语意连贯合逻辑，另外3个语法通顺但语意或语气不搭。\n'
+          + gradeHint + avoidHint
+          + '请严格按格式返回，不要有任何开场白、解释、Markdown符号或"好的"这类前缀，直接从"句子："三个字开始输出：\n句子：<前半句，以____结尾>\n选项A：<后半句1>\n选项B：<后半句2>\n选项C：<后半句3>\n选项D：<后半句4>\n正确答案：<A、B、C或D>';
+      } else if (body.subtype === 'synonym') {
+        sys = '你是一位经验丰富的语文老师，正在出一道"同义词"选择题。请给定的词语造一个自然、完整包含这个词语的句子（词语不要加符号），再生成4个选项，每个选项是2个词语组成的近义词组（用逗号隔开，比如"严厉，苛刻"）：其中一个选项替换进句子后语意依然通顺贴切，另外3个替换进去语意不准确或语气不搭。\n'
+          + gradeHint + avoidHint
+          + '请严格按格式返回，不要有任何开场白、解释、Markdown符号或"好的"这类前缀，直接从"句子："三个字开始输出：\n句子：<句子>\n选项A：<近义词组1>\n选项B：<近义词组2>\n选项C：<近义词组3>\n选项D：<近义词组4>\n正确答案：<A、B、C或D>';
+      } else {
+        sys = '你是一位经验丰富的语文老师，正在出一道"填空"作答题。请给定的词语造一个自然句子，把这个词语挖掉用____代替，再给出评分要点，说明正确答案就是给定的词语，允许合理的近义表达也算对。\n'
+          + gradeHint
+          + '请严格按格式返回，不要有任何开场白、解释、Markdown符号或"好的"这类前缀，直接从"句子："三个字开始输出：\n句子：<带____的句子>\n评分要点：<50字以内>';
+      }
+      let raw = await callGemini(sys, '目标词汇：' + body.word, 600);
+      raw = raw.split('**').join('').split('`').join('')
+        .split(String.fromCharCode(10)).map(line => line.replace(/^#+/, '').trimStart()).join(String.fromCharCode(10));
+      const sentenceBoundary = body.subtype === 'cloze' ? '评分要点' : '选项A';
+      const sentence = field(raw, '句子', [sentenceBoundary]);
+      if (!sentence) {
+        throw new Error('AI返回格式无法解析（没有找到"句子："这个字段）。AI原始回复：「' + raw.slice(0, 200) + '」');
+      }
+
+      if (body.subtype === 'cloze') {
+        const rubric = field(raw, '评分要点');
+        if (!rubric) {
+          throw new Error('AI返回格式无法解析（没有找到"评分要点："这个字段）。AI原始回复：「' + raw.slice(0, 200) + '」');
+        }
+        return { sentence, rubric };
+      }
+
+      const options = labels.map((l, idx) => field(raw, '选项' + l, [idx < 3 ? ('选项' + labels[idx + 1]) : '正确答案']));
+      if (options.some(o => !o)) {
+        throw new Error('AI返回格式无法解析（选项不完整）。AI原始回复：「' + raw.slice(0, 200) + '」');
+      }
+      const correctIndex = labels.indexOf(pickLetter(raw));
+      let ci = correctIndex < 0 ? 0 : correctIndex;
+      if (body.subtype === 'wordchoice') options[ci] = body.word; // 兜底：正确答案强制等于目标词汇
+      const r = forceAvoid(options, ci, body.avoidLetter);
+      return { sentence, options: r.options, correctIndex: r.correctIndex };
+    }
+
+    throw new Error('未识别的接口：' + path);
+  };
+
+  App.render();
+})();
+</script>
+</body>
+</html>
