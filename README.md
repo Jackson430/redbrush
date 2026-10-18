@@ -4,7 +4,7 @@
 
 An AI-powered assessment platform for **Singapore primary school Chinese (P1–P6)**. Teachers build a complete exam in minutes with Google Gemini; students take it online and get instant, rubric-based feedback; teachers review and override AI grades.
 
-**Live demo:** _<paste your Firebase Hosting URL here>_
+**Live demo:** _<[paste your Firebase Hosting URL here](https://redbrush-6ada7.web.app)>_
 **Teacher password (for judges):** `huacheng2026`
 
 ## The problem
